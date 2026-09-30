@@ -95,6 +95,16 @@ pub struct PrepareUploadRequestDto {
 pub struct PrepareUploadResponseDto {
     pub session_id: String,
     pub files: HashMap<String, String>,
+
+    /// Resume information, only for files the receiver can continue.
+    ///
+    /// This is an extension of this fork (see
+    /// [`PrepareUploadResponseDtoV2::resume`]): it is empty against an upstream
+    /// receiver and skipped on the wire when empty, so nothing changes for
+    /// peers that do not know the field. It is carried through the v2 -> v1
+    /// conversion because that is the type the Flutter bindings expose.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub resume: HashMap<String, crate::http::dto_v2::ResumeInfoV2>,
 }
 
 impl From<PrepareUploadRequestDto> for PrepareUploadRequestDtoV2 {
@@ -116,6 +126,9 @@ impl From<PrepareUploadResponseDtoV2> for PrepareUploadResponseDto {
         PrepareUploadResponseDto {
             session_id: v2.session_id,
             files: v2.files,
+            // Without this the sender would never learn where to continue, and
+            // a retry would silently restart from zero.
+            resume: v2.resume,
         }
     }
 }

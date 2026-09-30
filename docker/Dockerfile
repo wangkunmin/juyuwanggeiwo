@@ -193,6 +193,8 @@ RUN set -eux; \
 # 在宿主架构上原生运行（aarch64 与 x86_64 都支持）。
 FROM ${REGISTRY}/library/${RUST_IMAGE} AS codegen
 ARG FRB_VERSION
+# GitHub 在部分网络下不可达时，可把该地址指向本地/内网镜像（见 docker/README.md）
+ARG FRB_BASE_URL=https://github.com/fzyzcjy/flutter_rust_bridge/releases/download
 ARG DART_VERSION=3.11.5
 ARG DART_SDK_BASE_URL=https://storage.googleapis.com
 ARG RUSTUP_DIST_SERVER=https://static.rust-lang.org
@@ -217,6 +219,7 @@ RUN set -eux; \
     && apt-get install -y --no-install-recommends unzip xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# rustfmt 也在这一层装：codegen 结束前会格式化生成的 Rust，缺了它会产生数千行格式噪声
 RUN set -eux; \
     if [ -n "${CARGO_MIRROR}" ]; then \
       mkdir -p "$CARGO_HOME"; \
@@ -224,8 +227,10 @@ RUN set -eux; \
     fi; \
     rustup toolchain install nightly --profile minimal; \
     rustup component add rust-src --toolchain nightly; \
+    rustup component add rustfmt --toolchain nightly; \
     cargo install cargo-expand --locked; \
-    cargo expand --version
+    cargo expand --version; \
+    rustfmt --version
 
 # 预编译的 FRB codegen 二进制（免 cargo install）
 RUN set -eux; \
@@ -235,7 +240,7 @@ RUN set -eux; \
       *) echo "unsupported arch"; exit 1 ;; \
     esac; \
     curl -fsSL --retry 3 \
-      "https://github.com/fzyzcjy/flutter_rust_bridge/releases/download/v${FRB_VERSION}/flutter_rust_bridge_codegen-${FRB_TARGET}-v${FRB_VERSION}.tgz" \
+      "${FRB_BASE_URL}/v${FRB_VERSION}/flutter_rust_bridge_codegen-${FRB_TARGET}-v${FRB_VERSION}.tgz" \
       -o /tmp/frb.tgz; \
     tar -xzf /tmp/frb.tgz -C /tmp; \
     find /tmp -type f -name 'flutter_rust_bridge_codegen' -exec install -m 0755 {} /usr/local/bin/ \;; \
@@ -255,6 +260,14 @@ RUN set -eux; \
     unzip -q /tmp/dart.zip -d /opt; \
     rm -f /tmp/dart.zip; \
     dart --version
+
+# flutter_rust_bridge_codegen 会先检查 `flutter --version`（它假设 Dart 来自 Flutter SDK）。
+# 本层只装独立 Dart SDK，故提供一个薄封装把 flutter 委托给 dart：代码生成不需要
+# 真正的 Flutter（Flutter 构建由 dart-test / android-apk / linux-app 服务负责）。
+RUN set -eux; \
+    printf '#!/bin/sh\nexec dart "$@"\n' > /usr/local/bin/flutter; \
+    chmod +x /usr/local/bin/flutter; \
+    flutter --version
 
 WORKDIR /src
 CMD ["bash"]

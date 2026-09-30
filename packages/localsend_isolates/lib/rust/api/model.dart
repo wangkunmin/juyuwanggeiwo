@@ -88,18 +88,26 @@ class PrepareUploadResponseDto {
   final String sessionId;
   final Map<String, String> files;
 
+  /// Per-file resume offsets; empty unless the receiver can continue a file.
+  final Map<String, ResumeInfoV2> resume;
+
   const PrepareUploadResponseDto({
     required this.sessionId,
     required this.files,
+    required this.resume,
   });
 
   @override
-  int get hashCode => sessionId.hashCode ^ files.hashCode;
+  int get hashCode => sessionId.hashCode ^ files.hashCode ^ resume.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PrepareUploadResponseDto && runtimeType == other.runtimeType && sessionId == other.sessionId && files == other.files;
+      other is PrepareUploadResponseDto &&
+          runtimeType == other.runtimeType &&
+          sessionId == other.sessionId &&
+          files == other.files &&
+          resume == other.resume;
 }
 
 enum ProtocolType {
@@ -185,4 +193,19 @@ class RegisterResponseDto {
           deviceType == other.deviceType &&
           token == other.token &&
           hasWebInterface == other.hasWebInterface;
+}
+
+class ResumeInfoV2 {
+  /// Number of bytes the receiver already holds for this file.
+  final BigInt offset;
+
+  const ResumeInfoV2({
+    required this.offset,
+  });
+
+  @override
+  int get hashCode => offset.hashCode;
+
+  @override
+  bool operator ==(Object other) => identical(this, other) || other is ResumeInfoV2 && runtimeType == other.runtimeType && offset == other.offset;
 }

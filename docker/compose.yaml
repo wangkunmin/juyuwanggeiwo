@@ -147,12 +147,15 @@ services:
         PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
         DART_SDK_BASE_URL: ${DART_SDK_BASE_URL:-https://storage.googleapis.com}
         DART_VERSION: ${DART_VERSION:-3.11.5}
+        FRB_BASE_URL: ${FRB_BASE_URL:-https://github.com/fzyzcjy/flutter_rust_bridge/releases/download}
     image: lsg-codegen
     working_dir: /src
     volumes:
       - ..:/src
       - pub-cache:/root/.pub-cache
-    command: ["bash", "-c", "cd packages/localsend_isolates && flutter pub get && flutter_rust_bridge_codegen generate"]
+    # 该镜像不含 Flutter（codegen 不需要它），因此不跑 flutter pub get；
+    # 依赖解析结果由 dart-build-runner / dart-test 服务负责，这里直接生成。
+    command: ["bash", "-c", "cd packages/localsend_isolates && flutter_rust_bridge_codegen generate --no-deps-check"]
 
   # ---------- Dart 代码生成（dart_mappable / freezed / flutter_gen / slang） ----------
   # 改动模型或 i18n 后运行，生成物会写回宿主仓库

@@ -2,6 +2,7 @@ use flutter_rust_bridge::frb;
 pub use localsend::http::dto::{
     PrepareUploadRequestDto, PrepareUploadResponseDto, RegisterDto, RegisterResponseDto,
 };
+pub use localsend::http::dto_v2::ResumeInfoV2;
 pub use localsend::model::discovery::DeviceType;
 pub use localsend::model::discovery::ProtocolType;
 pub use localsend::model::transfer::{FileDto, FileMetadata};
@@ -67,8 +68,16 @@ pub struct _PrepareUploadRequestDto {
     pub files: HashMap<String, FileDto>,
 }
 
+#[frb(mirror(ResumeInfoV2))]
+pub struct _ResumeInfoV2 {
+    /// Number of bytes the receiver already holds for this file.
+    pub offset: u64,
+}
+
 #[frb(mirror(PrepareUploadResponseDto))]
 pub struct _PrepareUploadResponseDto {
     pub session_id: String,
     pub files: HashMap<String, String>,
+    /// Per-file resume offsets; empty unless the receiver can continue a file.
+    pub resume: HashMap<String, ResumeInfoV2>,
 }

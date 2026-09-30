@@ -148,6 +148,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Map<String, FileDto> dco_decode_Map_String_file_dto_None(dynamic raw);
 
   @protected
+  Map<String, ResumeInfoV2> dco_decode_Map_String_resume_info_v_2_None(dynamic raw);
+
+  @protected
+  Map<String, BigInt> dco_decode_Map_String_u_64_None(dynamic raw);
+
+  @protected
   Dart2RustStreamReceiver dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerDart2RustStreamReceiver(dynamic raw);
 
   @protected
@@ -341,7 +347,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<(String, FileDto)> dco_decode_list_record_string_file_dto(dynamic raw);
 
   @protected
+  List<(String, ResumeInfoV2)> dco_decode_list_record_string_resume_info_v_2(dynamic raw);
+
+  @protected
   List<(String, String)> dco_decode_list_record_string_string(dynamic raw);
+
+  @protected
+  List<(String, BigInt)> dco_decode_list_record_string_u_64(dynamic raw);
 
   @protected
   List<RsDeviceChannel> dco_decode_list_rs_device_channel(dynamic raw);
@@ -351,6 +363,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   LsHttpClientVersion dco_decode_ls_http_client_version(dynamic raw);
+
+  @protected
+  Map<String, BigInt>? dco_decode_opt_Map_String_u_64_None(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -417,7 +432,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (String, FileDto) dco_decode_record_string_file_dto(dynamic raw);
 
   @protected
+  (String, ResumeInfoV2) dco_decode_record_string_resume_info_v_2(dynamic raw);
+
+  @protected
   (String, String) dco_decode_record_string_string(dynamic raw);
+
+  @protected
+  (String, BigInt) dco_decode_record_string_u_64(dynamic raw);
 
   @protected
   RegisterDto dco_decode_register_dto(dynamic raw);
@@ -430,6 +451,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ResultWithPublicKeyRegisterResponseDto dco_decode_result_with_public_key_register_response_dto(dynamic raw);
+
+  @protected
+  ResumeInfoV2 dco_decode_resume_info_v_2(dynamic raw);
 
   @protected
   RsDeviceChannel dco_decode_rs_device_channel(dynamic raw);
@@ -608,6 +632,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Map<String, FileDto> sse_decode_Map_String_file_dto_None(SseDeserializer deserializer);
+
+  @protected
+  Map<String, ResumeInfoV2> sse_decode_Map_String_resume_info_v_2_None(SseDeserializer deserializer);
+
+  @protected
+  Map<String, BigInt> sse_decode_Map_String_u_64_None(SseDeserializer deserializer);
 
   @protected
   Dart2RustStreamReceiver sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerDart2RustStreamReceiver(
@@ -805,7 +835,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<(String, FileDto)> sse_decode_list_record_string_file_dto(SseDeserializer deserializer);
 
   @protected
+  List<(String, ResumeInfoV2)> sse_decode_list_record_string_resume_info_v_2(SseDeserializer deserializer);
+
+  @protected
   List<(String, String)> sse_decode_list_record_string_string(SseDeserializer deserializer);
+
+  @protected
+  List<(String, BigInt)> sse_decode_list_record_string_u_64(SseDeserializer deserializer);
 
   @protected
   List<RsDeviceChannel> sse_decode_list_rs_device_channel(SseDeserializer deserializer);
@@ -815,6 +851,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   LsHttpClientVersion sse_decode_ls_http_client_version(SseDeserializer deserializer);
+
+  @protected
+  Map<String, BigInt>? sse_decode_opt_Map_String_u_64_None(SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -883,7 +922,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (String, FileDto) sse_decode_record_string_file_dto(SseDeserializer deserializer);
 
   @protected
+  (String, ResumeInfoV2) sse_decode_record_string_resume_info_v_2(SseDeserializer deserializer);
+
+  @protected
   (String, String) sse_decode_record_string_string(SseDeserializer deserializer);
+
+  @protected
+  (String, BigInt) sse_decode_record_string_u_64(SseDeserializer deserializer);
 
   @protected
   RegisterDto sse_decode_register_dto(SseDeserializer deserializer);
@@ -896,6 +941,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ResultWithPublicKeyRegisterResponseDto sse_decode_result_with_public_key_register_response_dto(SseDeserializer deserializer);
+
+  @protected
+  ResumeInfoV2 sse_decode_resume_info_v_2(SseDeserializer deserializer);
 
   @protected
   RsDeviceChannel sse_decode_rs_device_channel(SseDeserializer deserializer);
@@ -1104,6 +1152,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_Map_String_file_dto_None(Map<String, FileDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_Map_String_resume_info_v_2_None(Map<String, ResumeInfoV2> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_Map_String_u_64_None(Map<String, BigInt> self, SseSerializer serializer);
 
   @protected
   void sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerDart2RustStreamReceiver(
@@ -1316,7 +1370,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_record_string_file_dto(List<(String, FileDto)> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_record_string_resume_info_v_2(List<(String, ResumeInfoV2)> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_record_string_string(List<(String, String)> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_record_string_u_64(List<(String, BigInt)> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_rs_device_channel(List<RsDeviceChannel> self, SseSerializer serializer);
@@ -1326,6 +1386,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_ls_http_client_version(LsHttpClientVersion self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_Map_String_u_64_None(Map<String, BigInt>? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
@@ -1395,7 +1458,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_record_string_file_dto((String, FileDto) self, SseSerializer serializer);
 
   @protected
+  void sse_encode_record_string_resume_info_v_2((String, ResumeInfoV2) self, SseSerializer serializer);
+
+  @protected
   void sse_encode_record_string_string((String, String) self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_record_string_u_64((String, BigInt) self, SseSerializer serializer);
 
   @protected
   void sse_encode_register_dto(RegisterDto self, SseSerializer serializer);
@@ -1408,6 +1477,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_result_with_public_key_register_response_dto(ResultWithPublicKeyRegisterResponseDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_resume_info_v_2(ResumeInfoV2 self, SseSerializer serializer);
 
   @protected
   void sse_encode_rs_device_channel(RsDeviceChannel self, SseSerializer serializer);

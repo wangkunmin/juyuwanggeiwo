@@ -105,7 +105,14 @@ abstract class RsHttpServer implements RustOpaqueInterface {
   ///
   /// Timestamps provided in the sender's file metadata are applied to the
   /// written file by the server.
-  Stream<double> respondFileUpload({required String sessionId, required String fileId, String? path, int? fileDescriptor, required BigInt fileSize});
+  Stream<double> respondFileUpload({
+    required String sessionId,
+    required String fileId,
+    String? path,
+    int? fileDescriptor,
+    required BigInt fileSize,
+    required BigInt offset,
+  });
 
   /// Answers the pending [RsServerEvent::WebPrepareDownload] event.
   ///
@@ -114,9 +121,13 @@ abstract class RsHttpServer implements RustOpaqueInterface {
 
   /// Answers the pending [RsServerEvent::PrepareUpload] event.
   ///
-  /// Passing the accepted file IDs (a subset of the offered files) accepts the request.
+  /// `accepted_offsets` maps each accepted file ID (a subset of the offered
+  /// files) to the number of bytes the application already holds for it: `0`
+  /// starts the file from scratch, a greater value is advertised to the sender
+  /// as a resume point.
+  ///
   /// Passing `None` declines the request.
-  Future<void> respondPrepareUpload({List<String>? acceptedFileIds});
+  Future<void> respondPrepareUpload({Map<String, BigInt>? acceptedOffsets});
 
   /// Stops the server.
   /// Returns after the listeners are closed, so the port can be bound again.
@@ -204,6 +215,13 @@ sealed class RsServerEvent with _$RsServerEvent {
     required String sessionId,
     required String fileId,
     required FileDto file,
+
+    /// Byte offset this upload starts at: `0` means the file is written from
+    /// the beginning (created or truncated), a value greater than `0` means
+    /// the receiver already holds that many bytes and the content must be
+    /// appended. Answer with [RsHttpServer::respond_file_upload], which
+    /// takes the same offset.
+    required BigInt offset,
   }) = RsServerEvent_FileUpload;
 
   /// An upload session ended.
