@@ -4,8 +4,8 @@
 
 基于 LocalSend 协议实现二次开发的局域网（LAN）点对点文件互传工具，支持手机 ↔ 电脑 ↔ 平板之间互传，不需要互联网、不经过服务器。与上游的差异点是**断点续传**（设计与进度见[断点续传方案](docs/断点续传方案.md)）；目前已完成项目标识切换，功能改造尚未开始。
 
-- **非官方项目**：与 LocalSend 官方无隶属关系，不使用其名称/徽标作自身标识（Apache-2.0 第 6 条不授予商标许可），请勿把本项目的构建产物当作官方版本。
-- **可与官方互通**：协议路径保持 `/api/localsend/v2/*` 不变，能与官方 LocalSend 及其他兼容实现互传；包名与签名和官方不同，可同时安装。
+- **非官方项目**：本仓库是社区二次开发，与 LocalSend 项目方无隶属关系。
+- **可与 LocalSend 互传**：协议路径保持 `/api/localsend/v2/*` 不变，能与官方客户端及其他兼容实现互通；包名不同，可与原版共存。
 - **许可与归属**：代码采用 [Apache License 2.0](LICENSE)；上游来源与修改说明见 [NOTICE](NOTICE)，上游原始说明保留在 [README.upstream.md](README.upstream.md)。
 
 ## 支持的平台
@@ -17,7 +17,7 @@
 | Windows | 10 |
 | macOS | 11 |
 | Linux | 依赖 xdg-desktop-portal |
-| 浏览器 | Web 链接收发模式，无需安装 |
+| 浏览器 | Web 链接收发模式 |
 
 ## 构建
 
@@ -30,7 +30,7 @@ docker compose -f docker/compose.yaml run --rm android-apk  # 打包 Android APK
 docker compose -f docker/compose.yaml run --rm dev          # 交互开发 shell
 ```
 
-国内网络加 `REGISTRY=docker.m.daocloud.io`；各 target、平台限制与常见问题见 [docker/README.md](docker/README.md)。
+国内网络可配置镜像源（见 [docker/README.md](docker/README.md)）；各 target、平台限制与常见问题同样见该文档。
 **iOS / macOS / Windows 无法在 Linux 容器内构建**，须在各自宿主完成。
 
 不使用容器时：用 `fvm` 管理 Flutter（版本见 [.fvmrc](.fvmrc)），Rust 版本见 [rust-toolchain.toml](rust-toolchain.toml)，核心库测试需带 `--features full`。完整命令、仓库结构与架构说明见 [AGENTS.md](AGENTS.md)。
