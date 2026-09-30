@@ -60,6 +60,15 @@ class HttpServerReceiveConfig {
   /// The session ID of the [HttpServerPrepareUploadEvent] being answered.
   final String sessionId;
 
+  /// The (unspoofable) fingerprint of the sending device. Part of the key under
+  /// which an interrupted transfer is remembered, so one device cannot continue
+  /// the partial file of another.
+  final String senderFingerprint;
+
+  /// The files the sender offered, mapped by file ID. Needed to recognize a
+  /// file whose transfer was interrupted earlier (断点续传).
+  final Map<String, FileDto> files;
+
   /// The accepted file IDs mapped to the desired file name
   /// (may contain a relative directory prefix).
   final Map<String, String> fileNameMap;
@@ -79,6 +88,8 @@ class HttpServerReceiveConfig {
 
   HttpServerReceiveConfig({
     required this.sessionId,
+    required this.senderFingerprint,
+    required this.files,
     required this.fileNameMap,
     required this.destinationDirectory,
     required this.cacheDirectory,
@@ -354,6 +365,54 @@ class HttpServerListenerFailedEvent extends HttpServerEvent {
   });
 }
 
+/// One interrupted transfer: where its bytes are and how many arrived.
+///
+/// P2 keeps this in memory (same app run); P3 persists it so a receiver restart
+/// can still continue.
+class _PartialTransfer {
+  _PartialTransfer({
+    required this.target,
+    required this.receivedBytes,
+    required this.fileSize,
+  });
+
+  /// The destination of the previous attempt. It is reused so a resumed file
+  /// keeps its name instead of getting a numbered copy.
+  final FileSaveTarget target;
+
+  final int receivedBytes;
+  final int fileSize;
+}
+
+/// Remembers interrupted transfers, keyed by sender and file identity.
+///
+/// The key prefers the sender-provided SHA-256 and falls back to name + size, so
+/// unrelated files never share an entry; the sender fingerprint keeps one device
+/// from continuing another device's partial file.
+class _PartialTransferStore {
+  final Map<String, _PartialTransfer> _entries = {};
+
+  static String keyOf({required String senderFingerprint, required FileDto file}) {
+    final identity = file.sha256 ?? '${file.fileName}|${file.size}';
+    return '$senderFingerprint|$identity';
+  }
+
+  /// The entry to continue, or `null` when the file must start from scratch.
+  _PartialTransfer? resumable({required String senderFingerprint, required FileDto file}) {
+    final entry = _entries[keyOf(senderFingerprint: senderFingerprint, file: file)];
+    if (entry == null || entry.receivedBytes <= 0 || entry.receivedBytes >= entry.fileSize) {
+      return null;
+    }
+    return entry;
+  }
+
+  void remember(String key, _PartialTransfer transfer) => _entries[key] = transfer;
+
+  void forget(String key) => _entries.remove(key);
+}
+
+final _partialTransfersProvider = Provider((ref) => _PartialTransferStore());
+
 class _ReceiveSession {
   final HttpServerReceiveConfig config;
 
@@ -577,9 +636,29 @@ Future<void> setupHttpServerIsolate(
           final config = decisionTask.config;
           // An empty fileNameMap accepts nothing: the Rust server responds
           // with 204 and creates no session.
-          ref.read(_receiveSessionProvider).session = config == null || config.fileNameMap.isEmpty ? null : _ReceiveSession(config);
+          final session = config == null || config.fileNameMap.isEmpty ? null : _ReceiveSession(config);
+          final offsets = <String, int>{};
+          if (config != null && session != null) {
+            final store = ref.read(_partialTransfersProvider);
+            for (final fileId in config.fileNameMap.keys) {
+              final file = config.files[fileId];
+              final partial = file == null ? null : store.resumable(senderFingerprint: config.senderFingerprint, file: file);
+              if (partial == null) {
+                offsets[fileId] = 0;
+                continue;
+              }
+              offsets[fileId] = partial.receivedBytes;
+              // Reuse the destination of the interrupted attempt: a resumed file
+              // must keep its name instead of being saved as "name (2)".
+              session.targets[fileId] = partial.target;
+              _logger.info(
+                'Continuing ${file.fileName} at ${partial.receivedBytes} of ${partial.fileSize} bytes',
+              );
+            }
+          }
+          ref.read(_receiveSessionProvider).session = session;
           await ref.read(httpServerProvider).respondPrepareUpload(
-            acceptedOffsets: config == null ? null : {for (final fileId in config.fileNameMap.keys) fileId: 0},
+            acceptedOffsets: config == null ? null : offsets,
           );
           return;
         case HttpServerCancelSessionTask cancelTask:
@@ -698,7 +777,9 @@ Future<void> _handleFileUpload({
           fileSize: dartFile.size,
           offset: offset,
         );
+    var lastProgress = 0.0;
     await for (final progress in progressStream) {
+      lastProgress = progress;
       emit(
         HttpServerFileUploadProgressEvent(
           sessionId: sessionId,
@@ -707,9 +788,27 @@ Future<void> _handleFileUpload({
         ),
       );
     }
+
+    // The file is complete: drop any remembered partial state for it.
+    ref
+        .read(_partialTransfersProvider)
+        .forget(_PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file));
   } catch (e, st) {
     // The incomplete file is kept: a retry of this file overwrites it, and
     // otherwise it stays behind as the partial file of a failed transfer.
+    //
+    // Remember how much arrived so the next attempt can continue instead of
+    // starting over. The last progress value is the number of bytes on disk
+    // (the Rust server always delivers it, also when the upload fails).
+    final receivedBytes = (lastProgress * dartFile.size).round().clamp(0, dartFile.size);
+    if (receivedBytes > 0 && receivedBytes < dartFile.size) {
+      final store = ref.read(_partialTransfersProvider);
+      store.remember(
+        _PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file),
+        _PartialTransfer(target: target, receivedBytes: receivedBytes, fileSize: dartFile.size),
+      );
+      _logger.info('Remembered ${file.fileName} at $receivedBytes bytes for a later resume');
+    }
     _logger.severe('Failed to save file', e, st);
     emitFailed(e);
     return;
