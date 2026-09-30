@@ -1516,6 +1516,21 @@ async fn test_pin_too_many_attempts() {
 // 整包上传（接收端截断重收）。
 // ---------------------------------------------------------------------------
 
+/// Waits until the application recorded the content of [file_id].
+///
+/// The record is written by the server event loop, which may finish after the
+/// upload request returned; polling keeps the assertions deterministic instead
+/// of racing the loop.
+async fn wait_for_file(server: &TestServer, file_id: &str) -> Vec<u8> {
+    for _ in 0..200 {
+        if let Some(bytes) = server.received.lock().await.get(file_id) {
+            return bytes.clone();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the application never recorded {file_id}");
+}
+
 /// 写出一个"上次传输中断后残留在磁盘上的前缀"。
 async fn write_partial_file(save_dir: &std::path::Path, file_id: &str, prefix: &[u8]) {
     tokio::fs::create_dir_all(save_dir).await.unwrap();
@@ -1589,9 +1604,9 @@ async fn test_resume_advertises_offset_and_appends_tail() {
     .await
     .unwrap();
 
-    let received = server.received.lock().await;
     assert_eq!(
-        received["file-a"], full,
+        wait_for_file(&server, "file-a").await,
+        full,
         "续传后的文件必须与完整内容逐字节一致（全文件 SHA-256 已通过）"
     );
 }
@@ -1711,9 +1726,9 @@ async fn test_resume_without_offset_restarts_from_scratch() {
     .await
     .unwrap();
 
-    let received = server.received.lock().await;
     assert_eq!(
-        received["file-a"], full,
+        wait_for_file(&server, "file-a").await,
+        full,
         "旧发送端整包上传时，接收端必须截断并重收，不能保留旧前缀"
     );
 }
