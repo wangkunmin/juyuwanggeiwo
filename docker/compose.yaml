@@ -131,8 +131,7 @@ services:
 
   # ---------- FRB 代码生成（生成物会写回宿主仓库） ----------
   codegen:
-    # Flutter 的 Linux SDK 只有 x86_64；arm64 宿主需开启 x86_64 模拟（Rosetta）
-    platform: linux/amd64
+    # 不依赖 Flutter（见 Dockerfile 说明），因此可在宿主架构原生运行
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -146,6 +145,8 @@ services:
         FLUTTER_SDK_BASE_URL: ${FLUTTER_SDK_BASE_URL:-https://storage.googleapis.com}
         FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
         PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
+        DART_SDK_BASE_URL: ${DART_SDK_BASE_URL:-https://storage.googleapis.com}
+        DART_VERSION: ${DART_VERSION:-3.11.5}
     image: lsg-codegen
     working_dir: /src
     volumes:

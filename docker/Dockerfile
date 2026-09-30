@@ -185,36 +185,51 @@ RUN set -eux; \
     test "$pv" = "$iv"; test "$pv" = "$cv"; test "$pv.0" = "$mv"; test "$pv" = "$ax"; test "$pv" = "$aa"; \
     echo "版本一致性检查通过"
 
-# ---- codegen：flutter_rust_bridge 代码生成 ---------------------------------
+# ---- codegen：flutter_rust_bridge 代码生成（不依赖 Flutter） ----------------
 #
-# 需要三样东西：
-#  1. 预编译的 flutter_rust_bridge_codegen（从 GitHub releases 取，免 cargo install）
-#  2. Rust 工具链：codegen 会调用 `cargo expand` 展开宏
-#  3. cargo-expand + nightly：`cargo expand` 依赖 nightly 的 -Zunpretty=expanded，
-#     因此把 RUSTUP_TOOLCHAIN 固定为 nightly（环境变量优先于仓库的
-#     rust-toolchain.toml，否则会用回 stable 1.97.1 而失败）
-FROM flutter-base AS codegen
+# `flutter_rust_bridge_codegen` 需要 cargo + `cargo expand`（nightly），Dart 仅用于
+# 格式化生成物。Flutter 的 Linux SDK 只有 x86_64，若把 codegen 建在 flutter-base 上，
+# arm64 宿主就得跑 x86_64 模拟并额外拉取 amd64 的 Rust 镜像；本层直接基于 Rust 镜像，
+# 在宿主架构上原生运行（aarch64 与 x86_64 都支持）。
+FROM ${REGISTRY}/library/${RUST_IMAGE} AS codegen
 ARG FRB_VERSION
+ARG DART_VERSION=3.11.5
+ARG DART_SDK_BASE_URL=https://storage.googleapis.com
 ARG RUSTUP_DIST_SERVER=https://static.rust-lang.org
 ARG CARGO_MIRROR=
+ARG DEBIAN_MIRROR=deb.debian.org
 
 ENV CARGO_HOME=/usr/local/cargo \
     RUSTUP_HOME=/usr/local/rustup \
     RUSTUP_DIST_SERVER=${RUSTUP_DIST_SERVER} \
+    # 环境变量优先于仓库的 rust-toolchain.toml：`cargo expand` 必须用 nightly
     RUSTUP_TOOLCHAIN=nightly \
-    PATH=/usr/local/cargo/bin:$PATH
-
-COPY --from=rust /usr/local/cargo /usr/local/cargo
-COPY --from=rust /usr/local/rustup /usr/local/rustup
+    PATH=/opt/dart-sdk/bin:/usr/local/cargo/bin:$PATH
 
 RUN set -eux; \
+    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
+      for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
+        [ -f "$f" ] || continue; \
+        sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
+      done; \
+    fi; \
+    apt-get update \
+    && apt-get install -y --no-install-recommends unzip xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    if [ -n "${CARGO_MIRROR}" ]; then \
+      mkdir -p "$CARGO_HOME"; \
+      printf '[source.crates-io]\nreplace-with = "mirror"\n[source.mirror]\nregistry = "%s"\n' "${CARGO_MIRROR}" > "$CARGO_HOME/config.toml"; \
+    fi; \
     rustup toolchain install nightly --profile minimal; \
     rustup component add rust-src --toolchain nightly; \
     cargo install cargo-expand --locked; \
     cargo expand --version
 
+# 预编译的 FRB codegen 二进制（免 cargo install）
 RUN set -eux; \
-    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+    case "$(dpkg --print-architecture)" in \
       amd64) FRB_TARGET=x86_64-unknown-linux-musl ;; \
       arm64) FRB_TARGET=aarch64-unknown-linux-musl ;; \
       *) echo "unsupported arch"; exit 1 ;; \
@@ -226,108 +241,20 @@ RUN set -eux; \
     find /tmp -type f -name 'flutter_rust_bridge_codegen' -exec install -m 0755 {} /usr/local/bin/ \;; \
     rm -f /tmp/frb.tgz; \
     flutter_rust_bridge_codegen --version
-# 运行（生成物会写回宿主仓库，注意先提交/备份）：
-#   docker run --rm -v "$PWD":/src lsg-codegen \
-#     sh -lc 'cd packages/localsend_isolates && flutter_rust_bridge_codegen generate'
 
-# =============================================================================
-# 3) Android 打包层：Flutter + Rust(NDK 交叉编译) + Android SDK
-# =============================================================================
-FROM flutter-base AS android-apk
-ARG ANDROID_CMDLINE_TOOLS
-ARG ANDROID_COMPILE_SDK
-ARG ANDROID_BUILD_TOOLS
-ARG NDK_VERSION
-
-ENV ANDROID_SDK_ROOT=/opt/android-sdk \
-    ANDROID_HOME=/opt/android-sdk \
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
-    CARGO_HOME=/usr/local/cargo \
-    RUSTUP_HOME=/usr/local/rustup \
-    PATH=/usr/local/cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH
-
-# Rust 工具链：cargokit 在 Flutter 构建期间用 cargo 交叉编译 Rust 插件
-COPY --from=rust /usr/local/cargo /usr/local/cargo
-COPY --from=rust /usr/local/rustup /usr/local/rustup
-
-ARG DEBIAN_MIRROR
+# Dart SDK：只用于 `dart format` 生成物，版本与 Flutter 3.41.9 内置的一致
 RUN set -eux; \
-    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
-        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
-            [ -f "$f" ] || continue; \
-            sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
-        done; \
-    fi; \
-    apt-get update && apt-get install -y --no-install-recommends \
-        openjdk-17-jdk-headless unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN set -eux; \
-    mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"; \
-    curl -fsSL --retry 3 "https://dl.google.com/android/repository/${ANDROID_CMDLINE_TOOLS}" -o /tmp/cmdline.zip; \
-    unzip -q /tmp/cmdline.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"; \
-    mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"; \
-    rm /tmp/cmdline.zip; \
-    yes | sdkmanager --licenses >/dev/null || true; \
-    sdkmanager --install "platform-tools" "platforms;${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" "cmake;3.22.1"; \
-    NDK="${NDK_VERSION:-$(grep -rhoE 'ndkVersion *= *"[0-9.]+"' /opt/flutter/packages/flutter_tools/gradle/ 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')}"; \
-    NDK="${NDK:-27.0.12077973}"; \
-    echo "Installing NDK $NDK (优先取 Flutter 期望版本)"; \
-    sdkmanager --install "ndk;${NDK}"; \
-    rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
-
-RUN --mount=type=cache,target=/root/.pub-cache \
-    --mount=type=cache,target=/root/.gradle \
-    --mount=type=cache,target=/src/target \
-    cd app && flutter pub get && flutter build apk --release
-
-# =============================================================================
-# 4) Linux 桌面打包层（GTK + Rust）
-# =============================================================================
-FROM flutter-base AS linux-app
-
-ENV CARGO_HOME=/usr/local/cargo \
-    RUSTUP_HOME=/usr/local/rustup \
-    PATH=/usr/local/cargo/bin:$PATH
-
-COPY --from=rust /usr/local/cargo /usr/local/cargo
-COPY --from=rust /usr/local/rustup /usr/local/rustup
-
-ARG DEBIAN_MIRROR
-RUN set -eux; \
-    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
-        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
-            [ -f "$f" ] || continue; \
-            sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
-        done; \
-    fi; \
-    apt-get update && apt-get install -y --no-install-recommends \
-        clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
-        libstdc++-12-dev libsecret-1-dev libjsoncpp-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN --mount=type=cache,target=/root/.pub-cache \
-    --mount=type=cache,target=/src/target \
-    cd app && flutter pub get && flutter build linux --release
-
-# =============================================================================
-# 5) 交互开发层：Rust + Flutter + Android SDK + FRB codegen 全在一台容器里
-#    docker run --rm -it -v "$PWD":/src lsg-dev
-# =============================================================================
-FROM android-apk AS dev
-ARG FRB_VERSION
-RUN set -eux; \
-    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
-      amd64) FRB_TARGET=x86_64-unknown-linux-musl ;; \
-      arm64) FRB_TARGET=aarch64-unknown-linux-musl ;; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) DART_ARCH=x64 ;; \
+      arm64) DART_ARCH=arm64 ;; \
       *) echo "unsupported arch"; exit 1 ;; \
     esac; \
     curl -fsSL --retry 3 \
-      "https://github.com/fzyzcjy/flutter_rust_bridge/releases/download/v${FRB_VERSION}/flutter_rust_bridge_codegen-${FRB_TARGET}-v${FRB_VERSION}.tgz" \
-      -o /tmp/frb.tgz; \
-    tar -xzf /tmp/frb.tgz -C /tmp; \
-    find /tmp -type f -name 'flutter_rust_bridge_codegen' -exec install -m 0755 {} /usr/local/bin/ \;; \
-    rm -f /tmp/frb.tgz; \
-    flutter_rust_bridge_codegen --version
+      "${DART_SDK_BASE_URL}/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-linux-${DART_ARCH}-release.zip" \
+      -o /tmp/dart.zip; \
+    unzip -q /tmp/dart.zip -d /opt; \
+    rm -f /tmp/dart.zip; \
+    dart --version
+
 WORKDIR /src
 CMD ["bash"]
