@@ -661,9 +661,11 @@ Future<void> setupHttpServerIsolate(
             }
           }
           ref.read(_receiveSessionProvider).session = session;
-          await ref.read(httpServerProvider).respondPrepareUpload(
-            acceptedOffsets: config == null ? null : offsets,
-          );
+          await ref
+              .read(httpServerProvider)
+              .respondPrepareUpload(
+                acceptedOffsets: config == null ? null : offsets,
+              );
           return;
         case HttpServerCancelSessionTask cancelTask:
           final holder = ref.read(_receiveSessionProvider);
@@ -799,9 +801,7 @@ Future<void> _handleFileUpload({
     }
 
     // The file is complete: drop any remembered partial state for it.
-    ref
-        .read(_partialTransfersProvider)
-        .forget(_PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file));
+    ref.read(_partialTransfersProvider).forget(_PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file));
   } catch (e, st) {
     // The incomplete file is kept: a retry of this file overwrites it, and
     // otherwise it stays behind as the partial file of a failed transfer.

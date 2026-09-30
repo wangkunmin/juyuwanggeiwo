@@ -22,6 +22,7 @@ class HttpUploadService {
     required String? path,
     required int? fileDescriptor,
     required int contentLength,
+
     /// Bytes the receiver already holds; the client skips them (断点续传).
     required int offset,
     required Device target,
