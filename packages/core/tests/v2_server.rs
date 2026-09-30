@@ -5,7 +5,7 @@ use futures_util::StreamExt;
 use localsend::crypto::hash::sha256_hex;
 use localsend::http::client::{ClientError, LsHttpClient, LsHttpClientV2};
 use localsend::http::dto_v2::{PrepareUploadRequestDtoV2, RegisterDtoV2};
-use localsend::http::server::common::save::FileUploadTarget;
+use localsend::http::server::common::save::{FileUploadTarget, SaveResult};
 use localsend::http::server::v2::{PrepareUploadDecisionV2, ServerEventV2, SessionEndReasonV2};
 use localsend::http::server::web::WebConfig;
 use localsend::http::server::{start_with_port, ServerConfigV2};
@@ -68,14 +68,19 @@ async fn start_test_server_with_verification(
                     } => {
                         let decision = match accept {
                             true => {
-                                PrepareUploadDecisionV2::Accept(files.keys().cloned().collect())
+                                PrepareUploadDecisionV2::Accept(
+                                    files.keys().map(|id| (id.clone(), 0_u64)).collect(),
+                                )
                             }
                             false => PrepareUploadDecisionV2::Decline,
                         };
                         let _ = decision_tx.send(decision);
                     }
                     ServerEventV2::FileUpload {
-                        file_id, target_tx, ..
+                        file_id,
+                        offset,
+                        target_tx,
+                        ..
                     } => {
                         let received = received.clone();
                         match &save_dir {
@@ -102,9 +107,13 @@ async fn start_test_server_with_verification(
                                     path: path.clone(),
                                     result_tx,
                                     progress_tx: None,
+                                    offset,
                                 });
                                 tokio::spawn(async move {
-                                    if let Ok(Ok(())) = result_rx.await {
+                                    if let Ok(outcome) = result_rx.await {
+                                        if !matches!(outcome.result, SaveResult::Success) {
+                                            return;
+                                        }
                                         let bytes = tokio::fs::read(&path).await.unwrap();
                                         received.lock().await.insert(file_id, bytes);
                                     }

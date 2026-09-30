@@ -108,6 +108,24 @@ pub struct PrepareUploadResponseDtoV2 {
     /// Map of file ID to file token.
     /// Only contains files that were accepted by the receiver.
     pub files: HashMap<String, String>,
+
+    /// Resume information, only for files the receiver can continue.
+    ///
+    /// This field is an extension of this fork; it is absent when nothing can be
+    /// resumed, so senders that do not know it simply ignore it. A sender that
+    /// understands it may send only the missing tail by passing `offset` to
+    /// POST /api/localsend/v2/upload. Senders that ignore it keep uploading the
+    /// whole file, which the receiver handles by truncating and starting over.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub resume: HashMap<String, ResumeInfoV2>,
+}
+
+/// How far the receiver already got with one file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeInfoV2 {
+    /// Number of bytes already stored on the receiver's disk.
+    pub offset: u64,
 }
 
 pub struct PrepareUploadResultV2 {

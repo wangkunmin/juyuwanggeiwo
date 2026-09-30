@@ -58,6 +58,15 @@ pub(crate) struct SessionFileV2 {
     /// Limits how often a checksum mismatch resets the file to
     /// [FileStatusV2::Pending] for a retry.
     pub(crate) attempts: u8,
+
+    /// Bytes the receiver already holds for this file, as decided by the
+    /// application when it accepted the prepare-upload request.
+    ///
+    /// `0` means "start from scratch". A sender that understands the `resume`
+    /// field of the prepare-upload response sends `offset` equal to this value
+    /// on `/upload` to continue; a sender that does not understand it omits
+    /// `offset`, which resets this field to `0` and restarts the file.
+    pub(crate) resume_offset: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

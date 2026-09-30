@@ -75,7 +75,7 @@ async fn start_tls_server_with_web(identity: &Identity, web: WebConfig) -> TestS
                             .await
                             .extend(files.keys().cloned().collect::<Vec<_>>());
                         let _ = decision_tx.send(PrepareUploadDecisionV2::Accept(
-                            files.keys().cloned().collect(),
+                            files.keys().map(|id| (id.clone(), 0_u64)).collect(),
                         ));
                     }
                     ServerEventV2::FileUpload {

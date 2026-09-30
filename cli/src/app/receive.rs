@@ -7,7 +7,7 @@ use crate::sanitize;
 use crate::ui::Category;
 use crate::util::{self, SpeedMeter};
 use localsend::http::client::v2::LsHttpClientV2;
-use localsend::http::server::common::save::FileUploadTarget;
+use localsend::http::server::common::save::{FileUploadTarget, SaveOutcome, SaveResult};
 use localsend::http::server::v2::{PrepareUploadDecisionV2, ServerEventV2, SessionEndReasonV2};
 use localsend::model::discovery::ProtocolType;
 use localsend::model::transfer::FileDto;
@@ -201,8 +201,9 @@ impl App {
                 session_id,
                 file_id,
                 file,
+                offset,
                 target_tx,
-            } => self.handle_file_upload(session_id, file_id, file, target_tx),
+            } => self.handle_file_upload(session_id, file_id, file, offset, target_tx),
             ServerEventV2::SessionEnd { session_id, reason } => {
                 let Some(session) = self
                     .receive
@@ -251,6 +252,7 @@ impl App {
         session_id: String,
         file_id: String,
         file: FileDto,
+        offset: u64,
         target_tx: oneshot::Sender<FileUploadTarget>,
     ) {
         let Some(session) = self
@@ -276,12 +278,16 @@ impl App {
             }
         });
 
-        let (result_tx, result_rx) = oneshot::channel::<Result<(), String>>();
+        let (result_tx, result_rx) = oneshot::channel::<SaveOutcome>();
         tokio::spawn({
             let events_tx = self.events_tx.clone();
             async move {
                 let result = match result_rx.await {
-                    Ok(result) => result,
+                    Ok(outcome) => match outcome.result {
+                        SaveResult::Success => Ok(()),
+                        SaveResult::HashMismatch => Err("Checksum mismatch".to_string()),
+                        SaveResult::Failed => Err("Upload failed".to_string()),
+                    },
                     Err(_) => Err("Upload aborted".to_string()),
                 };
                 let _ = events_tx
@@ -298,6 +304,7 @@ impl App {
             path,
             result_tx,
             progress_tx: Some(progress_tx),
+            offset,
         });
     }
 

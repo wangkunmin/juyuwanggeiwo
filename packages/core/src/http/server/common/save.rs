@@ -5,6 +5,7 @@ use hyper::body::Incoming;
 use hyper::Request;
 use std::future::Future;
 use std::path::PathBuf;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 
 /// Channel capacity for file upload chunks (provides backpressure).
@@ -13,6 +14,10 @@ const UPLOAD_CHANNEL_CAPACITY: usize = 16;
 /// Size of the write buffer that coalesces incoming body chunks (typically one
 /// TLS record, ~16 KiB) into larger file writes.
 const WRITE_BUFFER_SIZE: usize = 512 * 1024;
+
+/// Size of the buffer used when re-reading an existing prefix to seed the
+/// checksum of a resumed transfer.
+const PREFIX_READ_BUFFER_SIZE: usize = 64 * 1024;
 
 /// Where the content of an uploaded file should go, decided by the application.
 #[derive(Debug)]
@@ -27,6 +32,9 @@ pub enum FileUploadTarget {
     /// Note: the checksum is only verified after the application reported its
     /// result, so a checksum mismatch is not observable by the application here
     /// (unlike [FileUploadTarget::Path] and [FileUploadTarget::Fd]).
+    ///
+    /// Resuming is not supported for this target: the application would have to
+    /// know about the existing prefix itself.
     Stream {
         /// Channel the server sends the binary chunks of the file into.
         binary_tx: mpsc::Sender<Bytes>,
@@ -36,8 +44,13 @@ pub enum FileUploadTarget {
         result_rx: oneshot::Receiver<Result<(), String>>,
     },
 
-    /// The server writes the file to this path (created or truncated)
-    /// and reports the result on `result_tx`.
+    /// The server writes the file to this path and reports the outcome on
+    /// `result_tx`.
+    ///
+    /// With `offset == 0` the file is created or truncated. With `offset > 0`
+    /// the existing file must be at least `offset` bytes long: the server keeps
+    /// its content, continues writing at `offset` and still verifies the
+    /// checksum over the whole file.
     ///
     /// Timestamps provided in the sender's file metadata are applied to the
     /// written file, so the application does not need to set them itself.
@@ -45,33 +58,41 @@ pub enum FileUploadTarget {
         /// The path to write the file to.
         path: PathBuf,
 
-        /// Channel on which the server reports whether the file was saved
-        /// successfully, including the checksum verification if one was given.
-        result_tx: oneshot::Sender<Result<(), String>>,
+        /// Channel on which the server reports the outcome of the transfer.
+        result_tx: oneshot::Sender<SaveOutcome>,
 
         /// Optional channel on which the server reports the number of bytes
-        /// written so far. Events are dropped when the channel is full.
+        /// written so far (including a resumed prefix). Events are dropped when
+        /// the channel is full; the final value is always delivered.
         progress_tx: Option<mpsc::Sender<u64>>,
+
+        /// Byte offset to continue writing at. `0` starts a new file.
+        offset: u64,
     },
 
     /// The server writes the file to this raw file descriptor (Android only)
-    /// and reports the result on `result_tx`.
+    /// and reports the outcome on `result_tx`.
     ///
     /// Timestamps provided in the sender's file metadata are applied through
     /// the descriptor, which also covers SAF documents that have no path.
+    /// Resuming requires the descriptor to be seekable; if it is not, the
+    /// transfer fails and the application should retry from `offset = 0`.
     #[cfg(target_os = "android")]
     Fd {
         /// The raw file descriptor to write the file to.
         /// Ownership is transferred; the descriptor is closed after writing.
         fd: std::os::fd::RawFd,
 
-        /// Channel on which the server reports whether the file was saved
-        /// successfully, including the checksum verification if one was given.
-        result_tx: oneshot::Sender<Result<(), String>>,
+        /// Channel on which the server reports the outcome of the transfer.
+        result_tx: oneshot::Sender<SaveOutcome>,
 
         /// Optional channel on which the server reports the number of bytes
-        /// written so far. Events are dropped when the channel is full.
+        /// written so far (including a resumed prefix). Events are dropped when
+        /// the channel is full; the final value is always delivered.
         progress_tx: Option<mpsc::Sender<u64>>,
+
+        /// Byte offset to continue writing at. `0` starts a new file.
+        offset: u64,
     },
 }
 
@@ -91,7 +112,7 @@ impl FileTimestamps {
 
 /// Outcome of receiving an uploaded file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SaveResult {
+pub enum SaveResult {
     /// The file has been received and, if a checksum was given, it matched.
     Success,
 
@@ -102,49 +123,99 @@ pub(crate) enum SaveResult {
     HashMismatch,
 }
 
+/// Result of one upload attempt, including how much data reached the disk.
+///
+/// `written` includes a resumed prefix, so an application that keeps a partial
+/// file can store it as the next resume offset. It is the number of bytes that
+/// were flushed to the target when the attempt ended (also on failure).
+#[derive(Debug, Clone, Copy)]
+pub struct SaveOutcome {
+    /// How the attempt ended.
+    pub result: SaveResult,
+    /// Bytes stored on disk when the attempt ended (includes a resumed prefix).
+    pub written: u64,
+}
+
+impl SaveOutcome {
+    fn failed(written: u64) -> Self {
+        Self {
+            result: SaveResult::Failed,
+            written,
+        }
+    }
+}
+
+/// What the file writer task observed.
+#[derive(Debug)]
+struct WriteOutcome {
+    written: u64,
+    error: Option<String>,
+    hash_mismatch: bool,
+}
+
 /// Forwards the body of `req` to `target`.
+///
+/// `offset` is the byte position to continue at; it must be `0` unless the
+/// caller verified that the target already holds a matching prefix (see
+/// `/upload` for the validation rules).
 pub(crate) async fn save_req_to_target(
     req: Request<Incoming>,
     target: FileUploadTarget,
     file_size: u64,
+    offset: u64,
     expected_sha256: Option<&str>,
     timestamps: FileTimestamps,
-) -> SaveResult {
-    use sha2::{Digest, Sha256};
+) -> SaveOutcome {
+    // A stream target is consumed by the application itself, which would have to
+    // know about the existing prefix. Refuse instead of storing a wrong file.
+    if offset > 0 && matches!(&target, FileUploadTarget::Stream { .. }) {
+        tracing::warn!("Resume is not supported for stream upload targets");
+        return SaveOutcome::failed(0);
+    }
 
-    // Resolve the target into a chunk sender and a result receiver.
-    // For [FileUploadTarget::Path] and [FileUploadTarget::Fd], the application's
-    // result channel is answered by this function once the complete outcome
-    // (including the checksum verification) is known.
-    let (binary_tx, result_rx, app_result_tx) = match target {
+    match target {
         FileUploadTarget::Stream {
             binary_tx,
             result_rx,
-        } => (binary_tx, result_rx, None),
+        } => save_to_stream(req, binary_tx, result_rx, file_size, expected_sha256).await,
         FileUploadTarget::Path {
             path,
             result_tx,
             progress_tx,
+            offset: target_offset,
         } => {
-            let (binary_tx, result_rx) = spawn_file_writer(
-                async move {
-                    tokio::fs::File::create(&path)
-                        .await
-                        .map_err(|e| format!("Failed to create {}: {e}", path.display()))
-                },
-                file_size,
+            save_to_file(
+                req,
+                result_tx,
                 progress_tx,
+                file_size,
+                offset,
+                expected_sha256,
                 timestamps,
-            );
-            (binary_tx, result_rx, Some(result_tx))
+                async move {
+                    open_for_write(&path, target_offset)
+                        .await
+                        .map_err(|e| format!("Failed to open {}: {e}", path.display()))
+                },
+                target_offset,
+            )
+            .await
         }
         #[cfg(target_os = "android")]
         FileUploadTarget::Fd {
             fd,
             result_tx,
             progress_tx,
+            offset: target_offset,
         } => {
-            let (binary_tx, result_rx) = spawn_file_writer(
+            save_to_file(
+                req,
+                result_tx,
+                progress_tx,
+                file_size,
+                offset,
+                expected_sha256,
+                timestamps,
                 async move {
                     use std::os::fd::FromRawFd;
 
@@ -153,18 +224,44 @@ pub(crate) async fn save_req_to_target(
                     let std_file = unsafe { std::fs::File::from_raw_fd(fd) };
                     Ok(tokio::fs::File::from_std(std_file))
                 },
-                file_size,
-                progress_tx,
-                timestamps,
-            );
-            (binary_tx, result_rx, Some(result_tx))
+                target_offset,
+            )
+            .await
         }
-    };
+    }
+}
 
-    // Forward the request body to the target, hashing it on the way if requested.
+/// Opens `path` for writing: truncating for a fresh file, keeping the existing
+/// content when a prefix is resumed.
+async fn open_for_write(path: &std::path::Path, offset: u64) -> std::io::Result<tokio::fs::File> {
+    if offset == 0 {
+        tokio::fs::File::create(path).await
+    } else {
+        tokio::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .await
+    }
+}
+
+/// Streams the request body to an application-provided sink.
+///
+/// The checksum is verified here because the application only sees the chunks.
+async fn save_to_stream(
+    req: Request<Incoming>,
+    binary_tx: mpsc::Sender<Bytes>,
+    result_rx: oneshot::Receiver<Result<(), String>>,
+    file_size: u64,
+    expected_sha256: Option<&str>,
+) -> SaveOutcome {
+    use sha2::{Digest, Sha256};
+
     let mut hasher = expected_sha256.map(|_| Sha256::new());
-    let mut body = req.into_body();
+    let mut forwarded: u64 = 0;
     let mut stream_error = false;
+
+    let mut body = req.into_body();
     while let Some(frame) = body.frame().await {
         match frame {
             Ok(frame) => {
@@ -177,9 +274,9 @@ pub(crate) async fn save_req_to_target(
                 if let Some(hasher) = &mut hasher {
                     hasher.update(&data);
                 }
+                forwarded += data.len() as u64;
                 if binary_tx.send(data).await.is_err() {
-                    // The receiver is gone (dropped by the application or
-                    // closed by the file writer after an error).
+                    // The receiver is gone (dropped by the application).
                     stream_error = true;
                     break;
                 }
@@ -195,76 +292,148 @@ pub(crate) async fn save_req_to_target(
     // Signal end of file to the receiving side.
     drop(binary_tx);
 
-    // Determine the outcome; `error` carries the reason for the application.
-    let (result, error): (SaveResult, Option<String>) = 'outcome: {
-        if stream_error {
-            // The file writer (if any) fails with a size mismatch or its own
-            // write error once the channel is closed; collect that reason.
-            let error = match app_result_tx.is_some() {
-                true => match result_rx.await {
-                    Ok(Err(err)) => Some(err),
-                    _ => None,
-                },
-                false => None,
-            };
-            break 'outcome (
-                SaveResult::Failed,
-                error.or(Some("Upload aborted".to_string())),
-            );
-        }
-
-        match result_rx.await {
-            Ok(Ok(())) => (),
-            Ok(Err(err)) => {
-                tracing::warn!("Failed to process file: {err}");
-                break 'outcome (SaveResult::Failed, Some(err));
-            }
-            Err(_) => break 'outcome (SaveResult::Failed, Some("Upload aborted".to_string())),
-        }
-
-        if let (Some(hasher), Some(expected)) = (hasher, expected_sha256) {
-            let actual = crypto::hash::to_hex(&hasher.finalize());
-            if !actual.eq_ignore_ascii_case(expected) {
-                tracing::warn!("Checksum mismatch: expected {expected}, got {actual}");
-                break 'outcome (
-                    SaveResult::HashMismatch,
-                    Some("Checksum mismatch".to_string()),
-                );
-            }
-        }
-
-        (SaveResult::Success, None)
-    };
-
-    if let Some(app_result_tx) = app_result_tx {
-        let _ = app_result_tx.send(match error {
-            None => Ok(()),
-            Some(err) => Err(err),
-        });
+    if stream_error {
+        return SaveOutcome::failed(forwarded);
     }
 
-    result
+    match result_rx.await {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            tracing::warn!("Failed to process file: {err}");
+            return SaveOutcome::failed(forwarded);
+        }
+        Err(_) => return SaveOutcome::failed(forwarded),
+    }
+
+    if forwarded != file_size {
+        tracing::warn!("Expected {file_size} bytes, received {forwarded}");
+        return SaveOutcome::failed(forwarded);
+    }
+
+    if let (Some(hasher), Some(expected)) = (hasher, expected_sha256) {
+        let actual = crypto::hash::to_hex(&hasher.finalize());
+        if !actual.eq_ignore_ascii_case(expected) {
+            tracing::warn!("Checksum mismatch: expected {expected}, got {actual}");
+            return SaveOutcome {
+                result: SaveResult::HashMismatch,
+                written: forwarded,
+            };
+        }
+    }
+
+    SaveOutcome {
+        result: SaveResult::Success,
+        written: forwarded,
+    }
+}
+
+/// Streams the request body into a file written by a background task.
+///
+/// The application's result channel is answered once the complete outcome
+/// (including the checksum verification) is known.
+#[allow(clippy::too_many_arguments)]
+async fn save_to_file<F>(
+    req: Request<Incoming>,
+    result_tx: oneshot::Sender<SaveOutcome>,
+    progress_tx: Option<mpsc::Sender<u64>>,
+    file_size: u64,
+    offset: u64,
+    expected_sha256: Option<&str>,
+    timestamps: FileTimestamps,
+    open: F,
+    target_offset: u64,
+) -> SaveOutcome
+where
+    F: Future<Output = Result<tokio::fs::File, String>> + Send + 'static,
+{
+    let (binary_tx, result_rx) = spawn_file_writer(
+        open,
+        file_size,
+        target_offset,
+        progress_tx,
+        timestamps,
+        expected_sha256.map(str::to_string),
+    );
+
+    // Forward the request body to the writer. Any error is reported by the
+    // writer itself (a short body is a size mismatch there).
+    let mut body = req.into_body();
+    while let Some(frame) = body.frame().await {
+        match frame {
+            Ok(frame) => {
+                let Ok(data) = frame.into_data() else {
+                    continue; // ignore non-data frames (e.g. trailers)
+                };
+                if data.is_empty() {
+                    continue;
+                }
+                if binary_tx.send(data).await.is_err() {
+                    // The writer gave up (its own error is reported below).
+                    break;
+                }
+            }
+            Err(err) => {
+                tracing::warn!("Error reading upload body of file: {err:#}");
+                break;
+            }
+        }
+    }
+    drop(binary_tx);
+
+    let outcome = match result_rx.await {
+        Ok(outcome) => outcome,
+        Err(_) => WriteOutcome {
+            written: offset,
+            error: Some("Upload aborted".to_string()),
+            hash_mismatch: false,
+        },
+    };
+
+    if let Some(error) = &outcome.error {
+        tracing::warn!("Failed to process file: {error}");
+    }
+
+    let save_outcome = SaveOutcome {
+        result: match (&outcome.error, outcome.hash_mismatch) {
+            (None, _) => SaveResult::Success,
+            (Some(_), true) => SaveResult::HashMismatch,
+            (Some(_), false) => SaveResult::Failed,
+        },
+        written: outcome.written,
+    };
+
+    let _ = result_tx.send(save_outcome);
+    save_outcome
 }
 
 /// Spawns a task that writes incoming chunks to a file provided by `open`.
 ///
-/// Returns the sender for the binary chunks and a receiver for the final result.
+/// Returns the sender for the binary chunks and a receiver for the outcome.
 fn spawn_file_writer(
     open: impl Future<Output = Result<tokio::fs::File, String>> + Send + 'static,
     expected_size: u64,
+    offset: u64,
     progress_tx: Option<mpsc::Sender<u64>>,
     timestamps: FileTimestamps,
-) -> (mpsc::Sender<Bytes>, oneshot::Receiver<Result<(), String>>) {
+    expected_sha256: Option<String>,
+) -> (mpsc::Sender<Bytes>, oneshot::Receiver<WriteOutcome>) {
     let (binary_tx, mut binary_rx) = mpsc::channel::<Bytes>(UPLOAD_CHANNEL_CAPACITY);
-    let (internal_tx, internal_rx) = oneshot::channel::<Result<(), String>>();
+    let (internal_tx, internal_rx) = oneshot::channel::<WriteOutcome>();
 
     tokio::spawn(async move {
-        let result =
-            write_file_from_receiver(open, expected_size, &mut binary_rx, progress_tx, timestamps)
-                .await;
+        let outcome = write_file_from_receiver(
+            open,
+            expected_size,
+            offset,
+            &mut binary_rx,
+            progress_tx,
+            timestamps,
+            expected_sha256,
+        )
+        .await;
         // Unblock the request handler if it is still sending chunks.
         binary_rx.close();
-        let _ = internal_tx.send(result);
+        let _ = internal_tx.send(outcome);
     });
 
     (binary_tx, internal_rx)
@@ -272,57 +441,175 @@ fn spawn_file_writer(
 
 /// Writes all chunks received on `rx` to the file provided by `open`.
 ///
-/// Fails if the total number of written bytes does not match `expected_size`
-/// (e.g. the sender disconnected mid-transfer).
+/// With `offset == 0` the file is written from the beginning. With `offset > 0`
+/// the existing prefix is kept, the checksum is seeded from it (so the caller
+/// still gets a full-file checksum) and the received bytes are appended.
 ///
-/// The file is truncated to the written size, so that a target that pointed at
-/// a longer, pre-existing file cannot keep a tail of the old content.
+/// Fails if the total number of bytes does not match `expected_size` (e.g. the
+/// sender disconnected mid-transfer). The file is truncated to the final size so
+/// that a target that pointed at a longer, pre-existing file cannot keep a tail
+/// of the old content.
 ///
-/// The sender-provided `timestamps` are applied to the completely written
-/// file. This happens on the still-open handle: an Android file descriptor has
-/// no path to address the file by afterwards.
+/// The sender-provided `timestamps` are applied to the completely written file.
+/// This happens on the still-open handle: an Android file descriptor has no path
+/// to address the file by afterwards.
+#[allow(clippy::too_many_arguments)]
 async fn write_file_from_receiver(
     open: impl Future<Output = Result<tokio::fs::File, String>>,
     expected_size: u64,
+    offset: u64,
     rx: &mut mpsc::Receiver<Bytes>,
     progress_tx: Option<mpsc::Sender<u64>>,
     timestamps: FileTimestamps,
-) -> Result<(), String> {
-    use tokio::io::AsyncWriteExt;
+    expected_sha256: Option<String>,
+) -> WriteOutcome {
+    use sha2::{Digest, Sha256};
 
-    let mut file = tokio::io::BufWriter::with_capacity(WRITE_BUFFER_SIZE, open.await?);
-    let mut written: u64 = 0;
+    let mut buffered = match open.await {
+        Ok(file) => tokio::io::BufWriter::with_capacity(WRITE_BUFFER_SIZE, file),
+        Err(error) => {
+            return WriteOutcome {
+                written: 0,
+                error: Some(error),
+                hash_mismatch: false,
+            };
+        }
+    };
+    let mut file = buffered.get_mut();
+
+    let mut written: u64 = offset;
+
+    if offset == 0 {
+        // Best effort, mirroring the truncation of `File::create`: a document
+        // provider may not support truncation, which must not fail the transfer.
+        if let Err(e) = file.set_len(0).await {
+            tracing::warn!("Could not truncate the target before writing: {e}");
+        }
+    } else {
+        // A resumed transfer is only safe when the advertised prefix really is
+        // on disk; a short file means the receiver lost data and must restart.
+        match file.metadata().await {
+            Ok(meta) if meta.len() >= offset => {}
+            Ok(meta) => {
+                return WriteOutcome {
+                    written: 0,
+                    error: Some(format!(
+                        "Cannot resume at {offset} bytes: the target only holds {} bytes",
+                        meta.len()
+                    )),
+                    hash_mismatch: false,
+                };
+            }
+            Err(e) => {
+                return WriteOutcome {
+                    written: 0,
+                    error: Some(format!("Failed to inspect the target: {e}")),
+                    hash_mismatch: false,
+                };
+            }
+        }
+    }
+
+    // Seed the checksum with the prefix that is already on disk, then continue
+    // after it. Reading from the same handle keeps SAF descriptors working.
+    let mut hasher = expected_sha256.as_ref().map(|_| Sha256::new());
+    if let Some(hasher) = hasher.as_mut() {
+        if offset > 0 {
+            if let Err(error) = seed_hasher_from_prefix(file, hasher, offset).await {
+                return WriteOutcome {
+                    written: 0,
+                    error: Some(error),
+                    hash_mismatch: false,
+                };
+            }
+        }
+        if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
+            return WriteOutcome {
+                written: offset,
+                error: Some(format!("Failed to seek to the resume offset: {e}")),
+                hash_mismatch: false,
+            };
+        }
+    } else if offset > 0 {
+        if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
+            return WriteOutcome {
+                written: offset,
+                error: Some(format!("Failed to seek to the resume offset: {e}")),
+                hash_mismatch: false,
+            };
+        }
+    }
+
     while let Some(chunk) = rx.recv().await {
         written += chunk.len() as u64;
         if written > expected_size {
-            return Err(format!(
-                "Expected {expected_size} bytes, received at least {written}"
-            ));
+            let error = format!("Expected {expected_size} bytes, received at least {written}");
+            deliver_final_progress(&progress_tx, written).await;
+            return WriteOutcome {
+                written,
+                error: Some(error),
+                hash_mismatch: false,
+            };
         }
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| format!("Failed to write file: {e}"))?;
+        if let Some(hasher) = hasher.as_mut() {
+            hasher.update(&chunk);
+        }
+        if let Err(e) = buffered.write_all(&chunk).await {
+            let error = format!("Failed to write file: {e}");
+            deliver_final_progress(&progress_tx, written).await;
+            return WriteOutcome {
+                written,
+                error: Some(error),
+                hash_mismatch: false,
+            };
+        }
         if let Some(progress_tx) = &progress_tx {
             // Progress is best-effort: drop the event when the consumer lags.
             let _ = progress_tx.try_send(written);
         }
     }
-    file.flush()
-        .await
-        .map_err(|e| format!("Failed to flush file: {e}"))?;
-    let file = file.into_inner();
+
+    if let Err(e) = buffered.flush().await {
+        let error = format!("Failed to flush file: {e}");
+        deliver_final_progress(&progress_tx, written).await;
+        return WriteOutcome {
+            written,
+            error: Some(error),
+            hash_mismatch: false,
+        };
+    }
+
+    // Make sure the application learns the exact final byte count, which is what
+    // it stores as the resume offset when the transfer failed.
+    deliver_final_progress(&progress_tx, written).await;
 
     if written != expected_size {
-        return Err(format!(
-            "Expected {expected_size} bytes, received {written}"
-        ));
+        return WriteOutcome {
+            written,
+            error: Some(format!(
+                "Expected {expected_size} bytes, received {written}"
+            )),
+            hash_mismatch: false,
+        };
     }
+
+    if let (Some(hasher), Some(expected)) = (hasher, expected_sha256) {
+        let actual = crypto::hash::to_hex(&hasher.finalize());
+        if !actual.eq_ignore_ascii_case(&expected) {
+            return WriteOutcome {
+                written,
+                error: Some("Checksum mismatch".to_string()),
+                hash_mismatch: true,
+            };
+        }
+    }
+
+    let file = buffered.into_inner();
 
     // Drops content beyond the file that was just written, in case the target
     // pointed at a longer, pre-existing file: opening truncates for paths and
     // for descriptors opened with the SAF "wt" mode, but a document provider is
-    // free to ignore that mode. Retries of the same upload are covered by the
-    // exact size check above either way.
+    // free to ignore that mode.
     //
     // Best-effort: a provider may back the descriptor by something that cannot
     // be truncated (e.g. a pipe), which must not fail the completed transfer.
@@ -351,5 +638,53 @@ async fn write_file_from_receiver(
         }
     }
 
+    WriteOutcome {
+        written,
+        error: None,
+        hash_mismatch: false,
+    }
+}
+
+/// Reads the first `offset` bytes of `file` into `hasher` and seeks back to
+/// `offset`, so a resumed transfer can still verify a full-file checksum.
+///
+/// A short read means the advertised prefix is not on disk; callers turn that
+/// into a failure so the application can restart the file from scratch.
+async fn seed_hasher_from_prefix(
+    file: &mut tokio::fs::File,
+    hasher: &mut sha2::Sha256,
+    offset: u64,
+) -> Result<(), String> {
+    file.seek(std::io::SeekFrom::Start(0))
+        .await
+        .map_err(|e| format!("Failed to read the existing prefix: {e}"))?;
+
+    let mut buffer = vec![0_u8; PREFIX_READ_BUFFER_SIZE];
+    let mut remaining = offset;
+    while remaining > 0 {
+        let want = buffer.len().min(remaining as usize);
+        let read = file
+            .read(&mut buffer[..want])
+            .await
+            .map_err(|e| format!("Failed to read the existing prefix: {e}"))?;
+        if read == 0 {
+            return Err(format!(
+                "Cannot resume at {offset} bytes: the existing prefix is shorter"
+            ));
+        }
+        hasher.update(&buffer[..read]);
+        remaining -= read as u64;
+    }
+
+    file.seek(std::io::SeekFrom::Start(offset))
+        .await
+        .map_err(|e| format!("Failed to seek back to the resume offset: {e}"))?;
     Ok(())
+}
+
+/// Sends the final progress value, waiting for capacity instead of dropping it.
+async fn deliver_final_progress(progress_tx: &Option<mpsc::Sender<u64>>, written: u64) {
+    if let Some(progress_tx) = progress_tx {
+        let _ = progress_tx.send(written).await;
+    }
 }

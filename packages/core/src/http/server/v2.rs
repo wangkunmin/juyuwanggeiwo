@@ -1,6 +1,6 @@
 use crate::http::dto_v2::{
     InfoResponseDtoV2, PrepareUploadRequestDtoV2, PrepareUploadResponseDtoV2, RegisterDtoV2,
-    RegisterResponseDtoV2,
+    RegisterResponseDtoV2, ResumeInfoV2,
 };
 use crate::http::server::common::collect_to_json::CollectToJson;
 use crate::http::server::common::error::AppError;
@@ -17,7 +17,7 @@ use crate::model::discovery::PROTOCOL_VERSION_V2;
 use crate::model::transfer::FileDto;
 use hyper::body::Incoming;
 use hyper::{Request, Response, StatusCode};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -83,6 +83,12 @@ pub enum ServerEventV2 {
         /// The metadata of the file being uploaded.
         file: FileDto,
 
+        /// Byte offset this upload starts at. `0` means the file is written from
+        /// the beginning (the target is created or truncated); a value greater
+        /// than `0` means the receiver already holds that many bytes and the
+        /// content must be appended there.
+        offset: u64,
+
         /// Channel to send the target the file content should be written to.
         target_tx: oneshot::Sender<FileUploadTarget>,
     },
@@ -133,9 +139,15 @@ pub enum ServerEventV2 {
 /// The application's decision for a prepare-upload request.
 #[derive(Debug)]
 pub enum PrepareUploadDecisionV2 {
-    /// Accept the given file IDs (a subset of the offered files).
-    /// An empty set responds with 204 (no file transfer needed).
-    Accept(HashSet<String>),
+    /// Accept the given files, mapped from file ID to the byte offset the
+    /// receiver already holds on disk (`0` starts from scratch).
+    ///
+    /// Offsets greater than zero are advertised back to the sender in the
+    /// `resume` field of the response; a sender that understands it continues
+    /// the file, a sender that does not uploads it from the beginning.
+    ///
+    /// An empty map responds with 204 (no file transfer needed).
+    Accept(HashMap<String, u64>),
 
     /// Decline the request (403).
     Decline,
@@ -306,21 +318,26 @@ pub(crate) async fn prepare_upload(
                 "Rejected".to_string(),
             ));
         }
-        PrepareUploadDecisionV2::Accept(ids) => ids,
+        PrepareUploadDecisionV2::Accept(offsets) => offsets,
     };
 
+    // Clamp the offsets the application reported: a partial file cannot be
+    // longer than the offered file, and a stale offset must not make the
+    // receiver reject the sender's upload later.
     let files: HashMap<String, SessionFileV2> = payload
         .files
         .into_iter()
-        .filter(|(id, _)| accepted_ids.contains(id))
-        .map(|(id, dto)| {
+        .filter_map(|(id, dto)| {
+            let offset = offsets.get(&id).copied().unwrap_or(0);
+            let resume_offset = offset.min(dto.size);
             let file = SessionFileV2 {
                 dto,
                 token: Uuid::new_v4().to_string(),
                 status: FileStatusV2::Pending,
                 attempts: 0,
+                resume_offset,
             };
-            (id, file)
+            Some((id, file))
         })
         .collect();
 
@@ -335,6 +352,13 @@ pub(crate) async fn prepare_upload(
     let tokens: HashMap<String, String> = files
         .iter()
         .map(|(id, file)| (id.clone(), file.token.clone()))
+        .collect();
+
+    // Only advertise what can actually be continued.
+    let resume: HashMap<String, ResumeInfoV2> = files
+        .iter()
+        .filter(|(_, file)| file.resume_offset > 0)
+        .map(|(id, file)| (id.clone(), ResumeInfoV2 { offset: file.resume_offset }))
         .collect();
 
     {
@@ -354,6 +378,7 @@ pub(crate) async fn prepare_upload(
         body: PrepareUploadResponseDtoV2 {
             session_id,
             files: tokens,
+            resume,
         },
     }
     .into_response())
@@ -378,8 +403,22 @@ pub(crate) async fn upload(
         ));
     };
 
+    // Optional `offset` parameter (an extension of this fork): it tells the
+    // receiver where the sender starts writing.
+    //  - absent: the sender uploads the whole file; the receiver truncates and
+    //    starts over, which also covers senders that predate this extension.
+    //  - present: it must match the offset the receiver advertised in the
+    //    `resume` field, otherwise the file would be written at the wrong
+    //    position. Fail fast instead of storing a corrupt file.
+    let requested_offset = match query.get("offset") {
+        Some(raw) => Some(raw.parse::<u64>().map_err(|_| {
+            AppError::Message(StatusCode::BAD_REQUEST, "Invalid offset".to_string())
+        })?),
+        None => None,
+    };
+
     // Validate the request and mark the file as in progress.
-    let file_dto = {
+    let (file_dto, offset) = {
         let mut slot = v2.session.lock().await;
         let Some(SessionStateV2::Active(session)) = slot.as_mut() else {
             return Err(invalid_token_error());
@@ -393,9 +432,31 @@ pub(crate) async fn upload(
         if file.token != *token || file.status != FileStatusV2::Pending {
             return Err(invalid_token_error());
         }
+
+        let offset = match requested_offset {
+            None => {
+                // The sender does not use the resume extension: restart.
+                file.resume_offset = 0;
+                0
+            }
+            Some(requested) => {
+                if requested != file.resume_offset || requested > file.dto.size {
+                    tracing::warn!(
+                        "Rejected upload of file {file_id}: sender requested offset {requested}, receiver expected {}",
+                        file.resume_offset
+                    );
+                    return Err(AppError::Message(
+                        StatusCode::BAD_REQUEST,
+                        "Offset does not match the resume state".to_string(),
+                    ));
+                }
+                requested
+            }
+        };
+
         file.status = FileStatusV2::InProgress;
         file.attempts = file.attempts.saturating_add(1);
-        file.dto.clone()
+        (file.dto.clone(), offset)
     };
 
     // Marks the file as failed if this request is aborted mid-transfer.
@@ -419,6 +480,7 @@ pub(crate) async fn upload(
         session_id: session_id.clone(),
         file_id: file_id.clone(),
         file: file_dto,
+        offset,
         target_tx,
     };
     if v2.event_tx.send(event).await.is_err() {
@@ -431,18 +493,26 @@ pub(crate) async fn upload(
         return Err(AppError::Status(StatusCode::INTERNAL_SERVER_ERROR));
     };
 
-    let result = common::save::save_req_to_target(
+    let outcome = common::save::save_req_to_target(
         req,
         target,
         file_size,
+        offset,
         expected_sha256.as_deref(),
         timestamps,
     )
     .await;
 
-    upload_guard.finish(result).await;
+    if offset > 0 {
+        tracing::info!(
+            "Upload of file {file_id} finished at {} of {file_size} bytes (resumed from {offset})",
+            outcome.written
+        );
+    }
 
-    match result {
+    upload_guard.finish(outcome.result).await;
+
+    match outcome.result {
         SaveResult::Success => Ok(Response::new(empty_body())),
         SaveResult::Failed => Err(AppError::Status(StatusCode::INTERNAL_SERVER_ERROR)),
         SaveResult::HashMismatch => Err(AppError::Message(

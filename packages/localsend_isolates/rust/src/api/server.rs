@@ -3,7 +3,7 @@ use flutter_rust_bridge::frb;
 pub use localsend::http::dto_v2::RegisterDtoV2;
 use localsend::http::server::ServerConfigV2;
 pub use localsend::http::server::TlsConfig;
-use localsend::http::server::common::save::FileUploadTarget;
+use localsend::http::server::common::save::{FileUploadTarget, SaveOutcome, SaveResult};
 use localsend::http::server::internal::{InternalConfig, InternalEvent};
 pub use localsend::http::server::v2::SessionEndReasonV2;
 use localsend::http::server::v2::{PrepareUploadDecisionV2, ServerEventV2};
@@ -54,6 +54,13 @@ pub enum RsServerEvent {
         session_id: String,
         file_id: String,
         file: FileDto,
+
+        /// Byte offset this upload starts at: `0` means the file is written from
+        /// the beginning (created or truncated), a value greater than `0` means
+        /// the receiver already holds that many bytes and the content must be
+        /// appended. Answer with [RsHttpServer::respond_file_upload], which
+        /// takes the same offset.
+        offset: u64,
     },
 
     /// An upload session ended.
@@ -389,6 +396,7 @@ impl RsHttpServer {
                 session_id,
                 file_id,
                 file,
+                offset,
                 target_tx,
             } => {
                 self.pending_uploads
@@ -399,6 +407,7 @@ impl RsHttpServer {
                     session_id,
                     file_id,
                     file,
+                    offset,
                 })
                 .is_ok()
             }
@@ -482,18 +491,22 @@ impl RsHttpServer {
 
     /// Answers the pending [RsServerEvent::PrepareUpload] event.
     ///
-    /// Passing the accepted file IDs (a subset of the offered files) accepts the request.
+    /// `accepted_offsets` maps each accepted file ID (a subset of the offered
+    /// files) to the number of bytes the application already holds for it: `0`
+    /// starts the file from scratch, a greater value is advertised to the sender
+    /// as a resume point.
+    ///
     /// Passing `None` declines the request.
     pub async fn respond_prepare_upload(
         &self,
-        accepted_file_ids: Option<Vec<String>>,
+        accepted_offsets: Option<HashMap<String, u64>>,
     ) -> anyhow::Result<()> {
         let Some((_, decision_tx)) = self.pending_decision.lock().await.take() else {
             return Err(anyhow::anyhow!("No pending prepare-upload request"));
         };
 
-        let decision = match accepted_file_ids {
-            Some(ids) => PrepareUploadDecisionV2::Accept(ids.into_iter().collect()),
+        let decision = match accepted_offsets {
+            Some(offsets) => PrepareUploadDecisionV2::Accept(offsets),
             None => PrepareUploadDecisionV2::Decline,
         };
 
@@ -524,6 +537,7 @@ impl RsHttpServer {
         path: Option<String>,
         file_descriptor: Option<i32>,
         file_size: u64,
+        offset: u64,
     ) {
         let result = async {
             let Some(target_tx) = self
@@ -559,16 +573,25 @@ impl RsHttpServer {
                 }
             });
 
-            let (result_tx, result_rx) = oneshot::channel::<Result<(), String>>();
-            let target = resolve_upload_target(path, file_descriptor, result_tx, progress_tx)?;
+            let (result_tx, result_rx) = oneshot::channel::<SaveOutcome>();
+            let target = resolve_upload_target(path, file_descriptor, result_tx, progress_tx, offset)?;
 
             target_tx
                 .send(target)
                 .map_err(|_| anyhow::anyhow!("Upload request already ended"))?;
 
+            // The final progress value on the sink is the number of bytes that
+            // reached the disk (including a resumed prefix); the application
+            // stores it as the next resume offset when the transfer failed.
             match result_rx.await {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(err)) => Err(anyhow::anyhow!(err)),
+                Ok(outcome) => match outcome.result {
+                    SaveResult::Success => Ok(()),
+                    SaveResult::HashMismatch => Err(anyhow::anyhow!("Checksum mismatch")),
+                    SaveResult::Failed => Err(anyhow::anyhow!(
+                        "Upload failed after {} bytes",
+                        outcome.written
+                    )),
+                },
                 Err(_) => Err(anyhow::anyhow!("Upload request aborted")),
             }
         }
@@ -703,14 +726,16 @@ async fn recv_opt<T>(rx: &mut Option<mpsc::Receiver<T>>) -> Option<T> {
 fn resolve_upload_target(
     path: Option<String>,
     file_descriptor: Option<i32>,
-    result_tx: oneshot::Sender<Result<(), String>>,
+    result_tx: oneshot::Sender<SaveOutcome>,
     progress_tx: mpsc::Sender<u64>,
+    offset: u64,
 ) -> anyhow::Result<FileUploadTarget> {
     match (path, file_descriptor) {
         (Some(path), None) => Ok(FileUploadTarget::Path {
             path: path.into(),
             result_tx,
             progress_tx: Some(progress_tx),
+            offset,
         }),
         (None, Some(file_descriptor)) => {
             #[cfg(target_os = "android")]
@@ -719,11 +744,12 @@ fn resolve_upload_target(
                     fd: file_descriptor,
                     result_tx,
                     progress_tx: Some(progress_tx),
+                    offset,
                 })
             }
             #[cfg(not(target_os = "android"))]
             {
-                let _ = (file_descriptor, result_tx, progress_tx);
+                let _ = (file_descriptor, result_tx, progress_tx, offset);
                 Err(anyhow::anyhow!(
                     "File descriptors are only supported on Android"
                 ))
