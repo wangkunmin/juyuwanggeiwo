@@ -37,6 +37,9 @@ ARG FRB_VERSION=2.12.0
 ARG ANDROID_CMDLINE_TOOLS=commandlinetools-linux-11076708_latest.zip
 ARG ANDROID_COMPILE_SDK=android-36
 ARG ANDROID_BUILD_TOOLS=36.0.0
+# Debian 包源主机名。部分网络下 deb.debian.org 极慢（实测 20s 超时，而阿里云 0.2s、
+# 中科大 0.6s），可用 DEBIAN_MIRROR=mirrors.aliyun.com 覆盖。
+ARG DEBIAN_MIRROR=deb.debian.org
 
 # =============================================================================
 # 1) Rust 层（含完整测试）
@@ -56,7 +59,15 @@ ENV RUSTUP_DIST_SERVER=${RUSTUP_DIST_SERVER}
 
 ENV DEBIAN_FRONTEND=noninteractive
 # build-essential/pkg-config/libssl-dev/cmake/perl：ring、dtls、openssl-sys 等依赖的构建兜底
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG DEBIAN_MIRROR
+RUN set -eux; \
+    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
+            [ -f "$f" ] || continue; \
+            sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
+        done; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
         build-essential pkg-config libssl-dev cmake perl git ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && rustup component add clippy
@@ -97,7 +108,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PUB_CACHE=/root/.pub-cache \
     PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG DEBIAN_MIRROR
+RUN set -eux; \
+    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
+            [ -f "$f" ] || continue; \
+            sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
+        done; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
         curl git unzip xz-utils zip ca-certificates file \
     && rm -rf /var/lib/apt/lists/*
 
@@ -184,7 +203,15 @@ ENV ANDROID_SDK_ROOT=/opt/android-sdk \
 COPY --from=rust /usr/local/cargo /usr/local/cargo
 COPY --from=rust /usr/local/rustup /usr/local/rustup
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG DEBIAN_MIRROR
+RUN set -eux; \
+    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
+            [ -f "$f" ] || continue; \
+            sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
+        done; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
         openjdk-17-jdk-headless unzip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -219,7 +246,15 @@ ENV CARGO_HOME=/usr/local/cargo \
 COPY --from=rust /usr/local/cargo /usr/local/cargo
 COPY --from=rust /usr/local/rustup /usr/local/rustup
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG DEBIAN_MIRROR
+RUN set -eux; \
+    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
+            [ -f "$f" ] || continue; \
+            sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
+        done; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
         clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
         libstdc++-12-dev libsecret-1-dev libjsoncpp-dev \
     && rm -rf /var/lib/apt/lists/*

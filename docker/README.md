@@ -31,6 +31,19 @@ REGISTRY=docker.m.daocloud.io docker compose -f docker/compose.yaml build rust-t
 RUSTUP_DIST_SERVER=https://rsproxy.cn docker compose -f docker/compose.yaml build rust-test
 ```
 
+- **`deb.debian.org` 太慢时**（实测 20s 超时，而阿里云 0.2s），换 Debian 源主机：
+
+```bash
+DEBIAN_MIRROR=mirrors.aliyun.com docker compose -f docker/compose.yaml build rust-test
+```
+
+以上三个变量可同时使用：
+
+```bash
+REGISTRY=docker.m.daocloud.io RUSTUP_DIST_SERVER=https://rsproxy.cn \
+DEBIAN_MIRROR=mirrors.aliyun.com docker compose -f docker/compose.yaml build rust-test
+```
+
 `REGISTRY` 只影响基础镜像从哪拉取；`debian`、`rust` 这类官方镜像在镜像源上都以 `library/` 命名空间存在，Dockerfile 已按此拼装。
 
 ## 2. 快速开始
