@@ -92,7 +92,6 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
   }) async {
     // Pinned to the device the user picked, so the request is not sent at all
     // if someone else answers on that address.
-    final client = ref.read(httpProvider).pinnedTo(target.fingerprint);
     final sessionId = _uuid.v4();
     final createChecksums = ref.read(settingsProvider).createChecksums;
 
@@ -248,104 +247,11 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
       },
     );
 
-    rust_http.PrepareUploadResult? response;
-    bool invalidPin;
-    bool pinFirstAttempt = true;
-    String? pin;
-    final prepareUploadCancelToken = rust_cancel.createCancellationToken();
-    _prepareUploadCancelTokens[sessionId] = prepareUploadCancelToken;
-    try {
-      do {
-        invalidPin = false;
-        try {
-          response = await client.prepareUpload(
-            protocol: target.getProtocolType(),
-            ip: target.ip!,
-            port: target.port,
-            payload: requestDto,
-            // The peer is already verified during the TLS handshake by the
-            // fingerprint the client is pinned to.
-            publicKey: null,
-            pin: pin,
-            cancelToken: prepareUploadCancelToken,
-          );
-        } on rust_http.RsHttpClientError_StatusCode catch (e) {
-          switch (e.status) {
-            case 401:
-              invalidPin = true;
-
-              // wait until animation is finished
-              await sleepAsync(500);
-
-              pin = await showDialog<String>(
-                context: Routerino.context, // ignore: use_build_context_synchronously
-                builder: (_) => PinDialog(
-                  obscureText: true,
-                  showInvalidPin: !pinFirstAttempt,
-                ),
-              );
-
-              pinFirstAttempt = false;
-
-              if (pin == null) {
-                state = state.updateSession(
-                  sessionId: sessionId,
-                  state: (s) => s?.copyWith(
-                    status: SessionStatus.canceledBySender,
-                  ),
-                );
-                return;
-              }
-              break;
-            case 403:
-              state = state.updateSession(
-                sessionId: sessionId,
-                state: (s) => s?.copyWith(
-                  status: SessionStatus.declined,
-                ),
-              );
-              return;
-            case 409:
-              state = state.updateSession(
-                sessionId: sessionId,
-                state: (s) => s?.copyWith(
-                  status: SessionStatus.recipientBusy,
-                ),
-              );
-              return;
-            case 429:
-              state = state.updateSession(
-                sessionId: sessionId,
-                state: (s) => s?.copyWith(
-                  status: SessionStatus.tooManyAttempts,
-                ),
-              );
-              return;
-            default:
-              state = state.updateSession(
-                sessionId: sessionId,
-                state: (s) => s?.copyWith(
-                  status: SessionStatus.finishedWithErrors,
-                  errorMessage: e.humanErrorMessage,
-                ),
-              );
-              return;
-          }
-        } catch (e) {
-          state = state.updateSession(
-            sessionId: sessionId,
-            state: (s) => s?.copyWith(
-              status: SessionStatus.finishedWithErrors,
-              errorMessage: e.humanErrorMessage,
-            ),
-          );
-          return;
-        }
-      } while (invalidPin);
-    } finally {
-      _prepareUploadCancelTokens.remove(sessionId);
-    }
-
+    final response = await _requestPrepareUpload(
+      sessionId: sessionId,
+      target: target,
+      requestDto: requestDto,
+    );
     if (response == null) {
       return;
     }
@@ -398,9 +304,14 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
       return;
     }
 
+    // The receiver reports how much of each file it already holds; a resumed
+    // upload starts there instead of sending the whole file again.
+    final resumeFiles = response.response?.resume;
     final sendingFiles = {
       for (final file in requestState.files.values)
-        file.file.id: fileMap.containsKey(file.file.id) ? file.copyWith(token: fileMap[file.file.id]) : file,
+        file.file.id: fileMap.containsKey(file.file.id)
+            ? file.copyWith(token: fileMap[file.file.id], offset: resumeFiles?[file.file.id]?.offset.toInt() ?? 0)
+            : file,
     };
 
     // Recreate the transfer state: the hash progress is no longer needed and must not be
@@ -540,43 +451,208 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
 
   final uriContent = UriContent();
 
+  /// Sends the prepare-upload request for [requestDto].
+  ///
+  /// Handles the PIN dialog and maps failures onto the session status.
+  /// Returns `null` when the request did not succeed; callers should then
+  /// simply return, the status is already updated.
+  Future<rust_http.PrepareUploadResult?> _requestPrepareUpload({
+    required String sessionId,
+    required Device target,
+    required rust_model.PrepareUploadRequestDto requestDto,
+  }) async {
+    final client = ref.read(httpProvider).pinnedTo(target.fingerprint);
+    rust_http.PrepareUploadResult? response;
+    bool invalidPin;
+    bool pinFirstAttempt = true;
+    String? pin;
+    final prepareUploadCancelToken = rust_cancel.createCancellationToken();
+    _prepareUploadCancelTokens[sessionId] = prepareUploadCancelToken;
+    try {
+      do {
+        invalidPin = false;
+        try {
+          response = await client.prepareUpload(
+            protocol: target.getProtocolType(),
+            ip: target.ip!,
+            port: target.port,
+            payload: requestDto,
+            // The peer is already verified during the TLS handshake by the
+            // fingerprint the client is pinned to.
+            publicKey: null,
+            pin: pin,
+            cancelToken: prepareUploadCancelToken,
+          );
+        } on rust_http.RsHttpClientError_StatusCode catch (e) {
+          switch (e.status) {
+            case 401:
+              invalidPin = true;
+
+              // wait until animation is finished
+              await sleepAsync(500);
+
+              pin = await showDialog<String>(
+                context: Routerino.context, // ignore: use_build_context_synchronously
+                builder: (_) => PinDialog(
+                  obscureText: true,
+                  showInvalidPin: !pinFirstAttempt,
+                ),
+              );
+
+              pinFirstAttempt = false;
+
+              if (pin == null) {
+                state = state.updateSession(
+                  sessionId: sessionId,
+                  state: (s) => s?.copyWith(
+                    status: SessionStatus.canceledBySender,
+                  ),
+                );
+                return null;
+              }
+              break;
+            case 403:
+              state = state.updateSession(
+                sessionId: sessionId,
+                state: (s) => s?.copyWith(
+                  status: SessionStatus.declined,
+                ),
+              );
+              return null;
+            case 409:
+              state = state.updateSession(
+                sessionId: sessionId,
+                state: (s) => s?.copyWith(
+                  status: SessionStatus.recipientBusy,
+                ),
+              );
+              return null;
+            case 429:
+              state = state.updateSession(
+                sessionId: sessionId,
+                state: (s) => s?.copyWith(
+                  status: SessionStatus.tooManyAttempts,
+                ),
+              );
+              return null;
+            default:
+              state = state.updateSession(
+                sessionId: sessionId,
+                state: (s) => s?.copyWith(
+                  status: SessionStatus.finishedWithErrors,
+                  errorMessage: e.humanErrorMessage,
+                ),
+              );
+              return null;
+          }
+        } catch (e) {
+          state = state.updateSession(
+            sessionId: sessionId,
+            state: (s) => s?.copyWith(
+              status: SessionStatus.finishedWithErrors,
+              errorMessage: e.humanErrorMessage,
+            ),
+          );
+          return null;
+        }
+      } while (invalidPin);
+    } finally {
+      _prepareUploadCancelTokens.remove(sessionId);
+    }
+    return response;
+  }
+
   /// Sends a single file. Currently only used to retry a failed file.
+  ///
+  /// A retry re-negotiates the session instead of reusing the old token: the
+  /// receiver ends its session once every file reached a final state, so the
+  /// old token is rejected (403) after an interruption. The new session also
+  /// tells us how much of the file the receiver already holds, which turns the
+  /// retry into a resumed transfer (断点续传).
   Future<void> sendFile({
     required String sessionId,
     required SendingFile file,
     required bool isRetry,
   }) async {
-    if (file.token == null) {
-      return;
-    }
-
     final status = state[sessionId]?.status;
     const allowedStates = {SessionStatus.sending, SessionStatus.finishedWithErrors};
     if (status == null || !allowedStates.contains(status)) {
       return;
     }
 
+    var targetFile = file;
+
     if (isRetry) {
       _logger.info('Retrying ${file.file.fileName}');
 
-      ref.notifier(fileTransferProvider).setStatus(sessionId: sessionId, fileId: file.file.id, status: FileStatus.queue);
+      final sessionState = state[sessionId];
+      if (sessionState == null) {
+        return;
+      }
+
+      final originDevice = ref.read(deviceFullInfoProvider);
+      final requestDto = rust_model.PrepareUploadRequestDto(
+        info: rust_model.RegisterDto(
+          alias: originDevice.alias,
+          version: originDevice.version,
+          deviceModel: originDevice.deviceModel,
+          deviceType: originDevice.deviceType.toRust(),
+          token: originDevice.fingerprint,
+          port: originDevice.port,
+          protocol: originDevice.https ? rust_model.ProtocolType.https : rust_model.ProtocolType.http,
+          hasWebInterface: originDevice.download,
+        ),
+        files: {targetFile.file.id: targetFile.file.toRust()},
+      );
+
+      final response = await _requestPrepareUpload(
+        sessionId: sessionId,
+        target: sessionState.target,
+        requestDto: requestDto,
+      );
+      if (response == null) {
+        // The status was already updated by [_requestPrepareUpload].
+        return;
+      }
+
+      final token = response.response?.files[targetFile.file.id];
+      if (token == null) {
+        // The receiver declined this file: there is nothing to send.
+        _logger.info('Receiver declined ${targetFile.file.fileName} on retry');
+        return;
+      }
+
+      final offset = response.response?.resume?[targetFile.file.id]?.offset.toInt() ?? 0;
+      if (offset > 0) {
+        _logger.info('Continuing ${targetFile.file.fileName} at $offset of ${targetFile.file.size} bytes');
+      }
+      targetFile = targetFile.copyWith(
+        token: token,
+        offset: offset,
+        errorMessage: null,
+      );
+
       state = state.updateSession(
         sessionId: sessionId,
         state: (s) => s?.copyWith(
+          remoteSessionId: response.response?.sessionId ?? s.remoteSessionId,
           status: SessionStatus.sending,
-          files: s.files.map((key, value) {
-            if (key == file.file.id) {
-              return MapEntry(key, value.copyWith(errorMessage: null));
-            }
-            return MapEntry(key, value);
-          }),
+          files: {
+            ...s.files,
+            targetFile.file.id: targetFile,
+          },
         ),
       );
+      ref.notifier(fileTransferProvider).setStatus(sessionId: sessionId, fileId: targetFile.file.id, status: FileStatus.queue);
+    }
+
+    if (targetFile.token == null) {
+      return;
     }
 
     await _sendFiles(
       sessionId: sessionId,
-      files: [file],
+      files: [targetFile],
     );
 
     if (isRetry) {
@@ -608,8 +684,8 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
             filePath: file.path,
             fileBytes: file.bytes,
             fileSize: file.file.size,
-            // TODO(P2): 从 prepare-upload 响应的 resume 字段取真实偏移
-            offset: 0,
+            // Continue where the receiver stopped (0 = whole file).
+            offset: file.offset,
           ),
     ];
 
