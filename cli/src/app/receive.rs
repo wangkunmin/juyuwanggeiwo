@@ -134,7 +134,7 @@ impl App {
                 if let Some(message) = message_of(&files) {
                     // Nothing to transfer: the text is the request. Accepting
                     // no file ends the session right away.
-                    let _ = decision_tx.send(PrepareUploadDecisionV2::Accept(HashSet::new()));
+                    let _ = decision_tx.send(PrepareUploadDecisionV2::Accept(HashMap::new()));
                     self.ui.log(
                         Category::Receive,
                         &format!("{alias}: Message received\n{}", sanitize::multi_line(message)),
@@ -150,9 +150,12 @@ impl App {
                 };
 
                 if self.storage.paired.contains(&sender.fingerprint) {
-                    let ids: HashSet<String> = files.keys().cloned().collect();
+                    // The CLI does not keep partial files, so every file starts
+                    // from scratch (offset 0).
+                    let offsets: HashMap<String, u64> =
+                        files.keys().map(|id| (id.clone(), 0)).collect();
                     if decision_tx
-                        .send(PrepareUploadDecisionV2::Accept(ids))
+                        .send(PrepareUploadDecisionV2::Accept(offsets))
                         .is_ok()
                     {
                         // Nothing to confirm: the progress bar and the summary
@@ -485,10 +488,11 @@ impl App {
                         ),
                     }
                 }
-                let ids: HashSet<String> = pending.files.keys().cloned().collect();
+                let offsets: HashMap<String, u64> =
+                    pending.files.keys().map(|id| (id.clone(), 0)).collect();
                 if pending
                     .decision_tx
-                    .send(PrepareUploadDecisionV2::Accept(ids))
+                    .send(PrepareUploadDecisionV2::Accept(offsets))
                     .is_err()
                 {
                     self.ui.log(

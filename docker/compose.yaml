@@ -121,6 +121,27 @@ services:
         cd app && flutter analyze && flutter test
         cd ../packages/localsend_isolates && flutter pub get && flutter test
 
+  # ---------- FRB 代码生成（生成物会写回宿主仓库） ----------
+  codegen:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: codegen
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
+    image: lsg-codegen
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - pub-cache:/root/.pub-cache
+    command: ["bash", "-c", "cd packages/localsend_isolates && flutter pub get && flutter_rust_bridge_codegen generate"]
+
   # ---------- 发布前：版本一致性检查（pubspec/inno/cli/msix/appimage） ----------
   version-check:
     build:
