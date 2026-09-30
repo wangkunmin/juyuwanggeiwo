@@ -279,10 +279,15 @@ class MainActivity : FlutterActivity() {
             return
         }
 
+        // Resuming keeps the existing document content, so it must not be
+        // truncated; a fresh transfer uses "wt" (write + truncate). A document
+        // provider may ignore the truncation, so the writer additionally
+        // shortens the file itself.
+        val truncate = call.argument<Boolean>("truncate") ?: true
+        val mode = if (truncate) "wt" else "rw"
+
         try {
-            // "wt" is write + truncate. A document provider may ignore the
-            // truncation, so the writer additionally shortens the file itself.
-            val parcelFileDescriptor = contentResolver.openFileDescriptor(uri, "wt")
+            val parcelFileDescriptor = contentResolver.openFileDescriptor(uri, mode)
             if (parcelFileDescriptor == null) {
                 result.error("OPEN_FAILED", "The content provider did not return a file descriptor", null)
                 return

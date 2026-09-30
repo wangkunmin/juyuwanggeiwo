@@ -45,6 +45,10 @@ ARG DEBIAN_MIRROR=deb.debian.org
 ARG CARGO_MIRROR=
 # Flutter SDK / pub 源。国内直连 storage.googleapis.com 实测约 1 MB/s，
 # 而 storage.flutter-io.cn 约 8.6 MB/s；pub 同理可用 https://pub.flutter-io.cn
+# Flutter SDK **压缩包**的来源（可用宿主的本地镜像加速，见 docker/README.md）
+ARG FLUTTER_SDK_BASE_URL=https://storage.googleapis.com
+# 容器内 flutter 工具下载 engine artifacts 等资源所用的源（本地镜像通常没有这些文件，
+# 因此不要指向本地镜像；国内可用 https://storage.flutter-io.cn）
 ARG FLUTTER_STORAGE_BASE_URL=https://storage.googleapis.com
 ARG PUB_HOSTED_URL=https://pub.dev
 
@@ -115,6 +119,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # =============================================================================
 FROM ${REGISTRY}/library/debian:bookworm-slim AS flutter-base
 ARG FLUTTER_VERSION
+ARG FLUTTER_SDK_BASE_URL
 ARG FLUTTER_STORAGE_BASE_URL
 ARG PUB_HOSTED_URL
 
@@ -138,7 +143,7 @@ RUN set -eux; \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL --retry 3 \
-        "${FLUTTER_STORAGE_BASE_URL}/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+        "${FLUTTER_SDK_BASE_URL}/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
         -o /tmp/flutter.tar.xz \
     && tar -xJf /tmp/flutter.tar.xz -C /opt \
     && rm /tmp/flutter.tar.xz \

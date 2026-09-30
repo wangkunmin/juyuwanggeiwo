@@ -739,7 +739,7 @@ Future<void> _handleFileUpload({
     // attempt overwrites instead of creating a numbered version.
     final previous = session.targets[fileId];
     target = previous != null
-        ? await reopenFileSaveTarget(previous)
+        ? await reopenFileSaveTarget(previous, truncate: offset == 0)
         : await prepareFileSaveTarget(
             destinationDirectory: config.destinationDirectory,
             cacheDirectory: config.cacheDirectory,
@@ -801,13 +801,17 @@ Future<void> _handleFileUpload({
     // starting over. The last progress value is the number of bytes on disk
     // (the Rust server always delivers it, also when the upload fails).
     final receivedBytes = (lastProgress * dartFile.size).round().clamp(0, dartFile.size);
+    final store = ref.read(_partialTransfersProvider);
+    final key = _PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file);
     if (receivedBytes > 0 && receivedBytes < dartFile.size) {
-      final store = ref.read(_partialTransfersProvider);
-      store.remember(
-        _PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file),
-        _PartialTransfer(target: target, receivedBytes: receivedBytes, fileSize: dartFile.size),
-      );
+      store.remember(key, _PartialTransfer(target: target, receivedBytes: receivedBytes, fileSize: dartFile.size));
       _logger.info('Remembered ${file.fileName} at $receivedBytes bytes for a later resume');
+    } else if (receivedBytes == 0) {
+      // Nothing (or nothing of this attempt) is on disk: an Android SAF document
+      // is reopened with "wt", which truncates it, so a previous prefix may be
+      // gone. Dropping the entry makes the next attempt start from scratch
+      // instead of failing at the same offset forever.
+      store.forget(key);
     }
     _logger.severe('Failed to save file', e, st);
     emitFailed(e);

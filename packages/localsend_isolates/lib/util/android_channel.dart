@@ -90,9 +90,15 @@ Future<CreatedFileAndroid> createFileAndroid({
 ///
 /// The descriptor stays open after this call and must be closed by the native
 /// consumer it is passed to.
-Future<int> openFileForWritingAndroid({required String uri}) async {
+/// Opens an existing document created by [createFileAndroid] for writing.
+///
+/// With [truncate] the current content is discarded (a fresh transfer); pass
+/// `false` to keep it, which is required when continuing an interrupted
+/// transfer at a byte offset.
+Future<int> openFileForWritingAndroid({required String uri, bool truncate = true}) async {
   final fileDescriptor = await _methodChannel.invokeMethod<int>('openFileForWriting', {
     'uri': uri,
+    'truncate': truncate,
   });
   if (fileDescriptor == null) {
     throw StateError('Android returned no file descriptor for $uri');

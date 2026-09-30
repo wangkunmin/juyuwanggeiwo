@@ -98,19 +98,21 @@ Future<FileSaveTarget> prepareFileSaveTarget({
 ///
 /// The destination is kept, so the file is overwritten instead of being
 /// created a second time under a numbered name.
-Future<FileSaveTarget> reopenFileSaveTarget(FileSaveTarget target) async {
+Future<FileSaveTarget> reopenFileSaveTarget(FileSaveTarget target, {bool truncate = true}) async {
   final path = target.path;
   if (path != null) {
-    // The server opens (and truncates) the path itself.
+    // The server opens the path itself: it truncates for offset 0 and appends
+    // otherwise, so nothing to do here.
     return target;
   }
 
   // The descriptor of the previous attempt was consumed by it, so the SAF
-  // document has to be opened again.
-  _logger.info('Reopening ${target.displayPath}');
+  // document has to be opened again. Continuing a transfer must keep the
+  // existing prefix, hence `truncate: false`.
+  _logger.info('Reopening ${target.displayPath} (truncate: $truncate)');
   return FileSaveTarget(
     path: null,
-    fileDescriptor: await android_channel.openFileForWritingAndroid(uri: target.displayPath),
+    fileDescriptor: await android_channel.openFileForWritingAndroid(uri: target.displayPath, truncate: truncate),
     displayPath: target.displayPath,
   );
 }

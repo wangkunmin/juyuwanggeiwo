@@ -129,6 +129,29 @@ docker run --rm -v "$PWD":/src lsg-codegen \
   sh -c 'cd packages/localsend_isolates && flutter_rust_bridge_codegen generate'
 ```
 
+## 3.5 Apple Silicon（arm64）上的注意事项
+
+Flutter **只发布 x86_64 的 Linux SDK**（官方发布清单里没有 Linux arm64 归档），因此 `codegen`、`dart-format`、`dart-test`、`version-check`、`android-apk`、`linux-app`、`dev` 这些服务在 compose 里固定为 `platform: linux/amd64`：
+
+- **OrbStack**：默认已开启 x86_64 模拟（`orbctl config get rosetta` → `true`），可直接使用；
+- **Docker Desktop**：需在设置里勾选 “Use Rosetta for x86/amd64 emulation”；
+- 未开启模拟时会报 `Dynamic loader not found: /lib64/ld-linux-x86-64.so.2`；
+- 纯 Rust 的服务（`rust-check`/`rust-test`）仍以宿主架构（arm64）原生运行，速度正常；
+- 如果在 arm64 宿主上长期开发 Flutter 侧，**直接用宿主 macOS 的 fvm/Flutter 会快得多**，容器主要用于 CI 等价验证。
+
+### 完全离线/加速：用宿主已有的 Flutter SDK
+
+容器内下载 Flutter SDK 往往比宿主慢一个数量级。可以只在宿主下载一次，再用本地 HTTP 服务喂给构建：
+
+```bash
+mkdir -p /tmp/flutter-mirror/flutter_infra_release/releases/stable/linux
+cd /tmp/flutter-mirror/flutter_infra_release/releases/stable/linux
+curl -O https://storage.flutter-io.cn/flutter_infra_release/releases/stable/linux/flutter_linux_3.41.9-stable.tar.xz
+cd /tmp/flutter-mirror && python3 -m http.server 8931 --bind 0.0.0.0 &
+FLUTTER_STORAGE_BASE_URL=http://host.docker.internal:8931 \
+  docker compose -f docker/compose.yaml build dart-test
+```
+
 ## 4. 平台限制（重要）
 
 | 目标 | 能否在 Linux 容器内构建 | 说明 |
