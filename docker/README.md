@@ -112,7 +112,8 @@ docker compose -f docker/compose.yaml run --rm dev
 | `dart-format` | `rm -rf lib/gen` + `dart format --set-exit-if-changed lib test` | `format` job |
 | `dart-test` | `flutter analyze` + `flutter test`（app、isolates） | `test` job |
 | `version-check` | 五处版本号一致性 | `packaging` job 前半 |
-| `codegen` | 预编译版 `flutter_rust_bridge_codegen` 2.12.0（免 `cargo install`） | — |
+| `codegen` | 预编译版 `flutter_rust_bridge_codegen` 2.12.0 + Rust(nightly) + `cargo-expand` | — |
+| `dart-build-runner` | `build_runner`（dart_mappable/freezed/flutter_gen）+ `slang` i18n 生成 | — |
 | `android-apk` | Rust(NDK 交叉编译) + Android SDK → `flutter build apk --release` | — |
 | `linux-app` | GTK 依赖 + Rust → `flutter build linux --release` | — |
 | `dev` | 以上全部 + 交互 shell | — |

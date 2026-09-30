@@ -153,6 +153,38 @@ services:
       - pub-cache:/root/.pub-cache
     command: ["bash", "-c", "cd packages/localsend_isolates && flutter pub get && flutter_rust_bridge_codegen generate"]
 
+  # ---------- Dart 代码生成（dart_mappable / freezed / flutter_gen / slang） ----------
+  # 改动模型或 i18n 后运行，生成物会写回宿主仓库
+  dart-build-runner:
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: flutter-base
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        FLUTTER_SDK_BASE_URL: ${FLUTTER_SDK_BASE_URL:-https://storage.googleapis.com}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
+    image: lsg-dart-build-runner
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - pub-cache:/root/.pub-cache
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        cd app
+        flutter pub get
+        dart run build_runner build --delete-conflicting-outputs
+        dart run slang
+        cd ../packages/localsend_isolates
+        flutter pub get
+        dart run build_runner build --delete-conflicting-outputs
+
   # ---------- 发布前：版本一致性检查（pubspec/inno/cli/msix/appimage） ----------
   version-check:
     # Flutter 的 Linux SDK 只有 x86_64；arm64 宿主需开启 x86_64 模拟（Rosetta）
