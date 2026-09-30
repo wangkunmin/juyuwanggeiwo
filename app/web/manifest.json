@@ -1,6 +1,6 @@
 {
-  "name": "localsend_app",
-  "short_name": "localsend_app",
+  "name": "局域网给我",
+  "short_name": "juyuwanggeiwo",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#0175C2",

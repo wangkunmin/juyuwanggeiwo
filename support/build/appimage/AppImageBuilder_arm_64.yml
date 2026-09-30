@@ -7,11 +7,11 @@ script:
 AppDir:
   path: AppDir
   app_info:
-    id: org.localsend.localsend_app
-    name: LocalSend
-    icon: localsend
+    id: com.gitee.ynzj.juyuwanggeiwo
+    name: 局域网给我
+    icon: juyuwanggeiwo
     version: 1.18.2
-    exec: localsend_app
+    exec: juyuwanggeiwo
     exec_args: $@
   apt:
     arch:

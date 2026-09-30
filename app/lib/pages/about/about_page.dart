@@ -33,16 +33,16 @@ class AboutPage extends StatelessWidget {
           const SizedBox(height: 20),
           const LocalSendLogo(withText: true),
           Text(
-            '© ${DateTime.now().year} Tien Do Nam',
+            '© ${DateTime.now().year} ynzj · 基于 LocalSend（Apache-2.0）',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 10),
           Center(
             child: TextButton(
               onPressed: () async {
-                await launchUrl(Uri.parse('https://localsend.org'));
+                await launchUrl(Uri.parse('https://gitee.com/ynzj/juyuwanggeiwo'));
               },
-              child: const Text('localsend.org'),
+              child: const Text('gitee.com/ynzj/juyuwanggeiwo'),
             ),
           ),
           const SizedBox(height: 10),
@@ -137,21 +137,21 @@ class AboutPage extends StatelessWidget {
             children: [
               TextButton(
                 onPressed: () async {
-                  await launchUrl(Uri.parse('https://localsend.org'));
+                  await launchUrl(Uri.parse('https://gitee.com/ynzj/juyuwanggeiwo'));
                 },
-                child: const Text('Homepage'),
+                child: const Text('项目主页'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await launchUrl(Uri.parse('https://gitee.com/ynzj/juyuwanggeiwo'), mode: LaunchMode.externalApplication);
+                },
+                child: const Text('项目源码 (Gitee)'),
               ),
               TextButton(
                 onPressed: () async {
                   await launchUrl(Uri.parse('https://github.com/localsend/localsend'), mode: LaunchMode.externalApplication);
                 },
-                child: const Text('Source Code (Github)'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  await launchUrl(Uri.parse('https://codeberg.org/localsend/localsend'), mode: LaunchMode.externalApplication);
-                },
-                child: const Text('Source Code (Codeberg)'),
+                child: const Text('上游项目 LocalSend'),
               ),
               TextButton(
                 onPressed: () async {

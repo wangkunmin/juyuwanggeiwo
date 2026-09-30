@@ -1,5 +1,5 @@
 name: localsend_app
-description: An open source cross-platform alternative to AirDrop
+description: 局域网传输 · 跨平台互传 · 断点续传（基于 LocalSend 协议二次开发）
 homepage: https://localsend.org/
 publish_to: "none"
 resolution: workspace

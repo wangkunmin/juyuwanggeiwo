@@ -1,9 +1,9 @@
-display_name: LocalSend
-packager: Tienisto
-packagerEmail: dev.tien.donam@gmail.com
-url: https://localsend.org
+display_name: 局域网给我
+packager: ynzj
+packagerEmail: 927070135@qq.com
+url: https://gitee.com/ynzj/juyuwanggeiwo
 buildArch: x86_64
-license: MIT
+license: Apache-2.0
 
 icon: assets/img/logo-512.png
 
@@ -17,7 +17,7 @@ keywords:
   - Files
 
 generic_name: An open source cross-platform alternative to AirDrop
-summary: Share files easily with LocalSend
+summary: 局域网传输 · 跨平台互传 · 断点续传（基于 LocalSend 协议二次开发）
 group: Applications/Utilities
 
 categories:

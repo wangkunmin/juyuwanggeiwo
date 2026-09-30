@@ -1,8 +1,8 @@
-display_name: LocalSend
-package_name: localsend
+display_name: 局域网给我
+package_name: juyuwanggeiwo
 maintainer:
-  name: Tienisto
-  email: dev.tien.donam@gmail.com
+  name: ynzj
+  email: 927070135@qq.com
 co_authors:
   - name: TheGB0077
     email: gb.lima.dev@gmail.com
@@ -22,7 +22,7 @@ dependencies:
   - xdg-user-dirs
 
 postinstall_scripts:
-  - echo "Installed Localsend successfully"
+  - echo "Installed juyuwanggeiwo successfully"
 postuninstall_scripts:
   - echo "Sorry to see you go :("
 

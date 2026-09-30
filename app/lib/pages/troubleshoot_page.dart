@@ -36,8 +36,8 @@ class TroubleshootPage extends StatelessWidget {
                 TargetPlatform.windows: _CommandFixAction(
                   adminPrivileges: true,
                   commands: [
-                    'netsh advfirewall firewall add rule name="LocalSend" dir=in action=allow protocol=TCP localport=${settings.port}',
-                    'netsh advfirewall firewall add rule name="LocalSend" dir=in action=allow protocol=UDP localport=${settings.port}',
+                    'netsh advfirewall firewall add rule name="juyuwanggeiwo" dir=in action=allow protocol=TCP localport=${settings.port}',
+                    'netsh advfirewall firewall add rule name="juyuwanggeiwo" dir=in action=allow protocol=UDP localport=${settings.port}',
                   ],
                 ),
               },
