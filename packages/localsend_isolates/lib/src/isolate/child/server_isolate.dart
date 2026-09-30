@@ -765,6 +765,10 @@ Future<void> _handleFileUpload({
     return;
   }
 
+  // Declared outside the try so the failure handler below can read how far the
+  // transfer got (the Rust server delivers the final value even on failure).
+  var lastProgress = 0.0;
+
   try {
     // The Rust server writes the file and reports the progress.
     final progressStream = ref
@@ -777,7 +781,6 @@ Future<void> _handleFileUpload({
           fileSize: dartFile.size,
           offset: offset,
         );
-    var lastProgress = 0.0;
     await for (final progress in progressStream) {
       lastProgress = progress;
       emit(
