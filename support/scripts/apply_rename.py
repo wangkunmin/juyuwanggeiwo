@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""把上游 LocalSend 的项目标识替换为「局域网给我 / juyuwanggeiwo」。
+"""把上游 LocalSend 的项目标识替换为「局域网给我 / juyuwanggeiwo」的映射记录。
 
-一次性脚本（执行后可删除）：严格排除协议路径 /api/localsend/v2/...、PROTOCOL_VERSION、
-上游版权与许可证文件、上游 issue/仓库 URL 引用。
+本脚本保留当年执行改名时的完整映射表，供日后与上游同步时参考；对已改名的仓库
+重复执行是**幂等的空操作**（找不到旧串时只打印提示，不修改任何文件）。
+
+严格排除：协议路径 /api/localsend/v2|v3/...、PROTOCOL_VERSION、LICENSE/NOTICE、
+上游 issue/仓库 URL 引用。
 """
 from __future__ import annotations
 
@@ -10,7 +13,8 @@ import os
 import re
 import sys
 
-REPO = "/Users/wangkm/workspace/gitee/localsend"
+# 仓库根目录由脚本位置推导，任何克隆路径下都能直接运行
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 APP_ID = "com.gitee.ynzj.juyuwanggeiwo"
 APP_ID_OLD = "org.localsend.localsend_app"
 APP_ID_CAMEL_OLD = "org.localsend.localsendApp"

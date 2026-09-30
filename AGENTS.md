@@ -5,7 +5,7 @@
 > 仅在本说明块新增内容，其余原文未改动（修改记录见 [NOTICE](NOTICE)）。
 >
 > **下面这段上游的"AI 贡献政策"只约束向上游 LocalSend 提交贡献的行为，不适用于本分支自身的开发。**
-> 本分支的贡献要求见 [README.md](README.md) 第 7 节。基线提交：`c5bbe36`。
+> 本分支不禁止 AI 辅助开发；开发文档索引见 [docs/README.md](docs/README.md)。基线提交：`c5bbe36`。
 
 LocalSend disallows AI generated contributions unless:
 
@@ -113,7 +113,7 @@ Integration is channel-based: `start_with_port` takes a `ServerConfigV2 { pin, e
 
 The FRB layer (`packages/localsend_isolates/rust/src/api/server.rs`) exposes `start_server` + an opaque `RsHttpServer` whose `listen` merges the v2, web-send and internal channels into one `RsServerEvent` stream; responder oneshots stay on the Rust side. On the Dart side `child/server_isolate.dart` turns those into `HttpServerEvent`s, which `app/lib/provider/network/server/server_provider.dart` routes to `ReceiveController` / `SendController` — these are **event handlers, not route handlers**.
 
-Save targets are decided in Dart (`prepareFileSaveTarget`) and written by Rust: a path, or an Android SAF file descriptor obtained through the `org.localsend.localsend_app/localsend` method channel. Gallery saves go through a cache file first.
+Save targets are decided in Dart (`prepareFileSaveTarget`) and written by Rust: a path, or an Android SAF file descriptor obtained through the `com.gitee.ynzj.juyuwanggeiwo/channel` method channel. Gallery saves go through a cache file first.
 
 Server event `ip`s are `PeerIp` (IP + IPv6 scope): a link-local peer renders as `fe80::1%3`, which the HTTP client accepts back as a host, so event ips stay dialable.
 
