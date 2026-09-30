@@ -1,5 +1,12 @@
 # AGENTS.md
 
+> **【本仓库是二次开发分支「续传点 / Xuchuandian」】**
+> 本文件来自上游 [localsend/localsend](https://github.com/localsend/localsend)（Apache-2.0），
+> 仅在本说明块新增内容，其余原文未改动（修改记录见 [NOTICE](NOTICE)）。
+>
+> **下面这段上游的"AI 贡献政策"只约束向上游 LocalSend 提交贡献的行为，不适用于本分支自身的开发。**
+> 本分支的贡献要求见 [README.md](README.md) 第 7 节。基线提交：`c5bbe36`。
+
 LocalSend disallows AI generated contributions unless:
 
 - they are bug fixes or

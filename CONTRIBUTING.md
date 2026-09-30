@@ -1,5 +1,12 @@
 # Contributing to LocalSend
 
+> **【本仓库是二次开发分支「续传点 / Xuchuandian」】**
+> 本文件来自上游 [localsend/localsend](https://github.com/localsend/localsend)（Apache-2.0），
+> 仅在本说明块新增内容，其余原文未改动（修改记录见 [NOTICE](NOTICE)）。
+>
+> 下文中的贡献流程与"AI 贡献政策"针对**上游 LocalSend 项目**。本分支自身的贡献要求见
+> [README.md](README.md) 第 7 节。基线提交：`c5bbe36`。
+
 LocalSend is an open-source project, and we welcome contributions from anyone who is interested in helping improve the app. Whether you're a developer, a translator, or a documentation writer, there are many ways to get involved.
 
 LocalSend disallows AI generated contributions unless:

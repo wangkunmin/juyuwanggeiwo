@@ -1,0 +1,42 @@
+续传点（Xuchuandian）
+Copyright 2026 ynzj (https://gitee.com/ynzj)
+
+本产品包含来自 LocalSend 项目的软件。
+
+  LocalSend
+  https://github.com/localsend/localsend
+  Copyright LocalSend contributors
+  Licensed under the Apache License, Version 2.0
+  基线提交（baseline commit）：c5bbe3630bb50e0de8253502b41523c4a58825bb
+  （2026-09-29，docs: update version compatibility table (#3477)）
+
+许可证全文见本仓库根目录 LICENSE 文件。该文件来自上游，未做任何修改。
+
+────────────────────────────────────────────────────────────────────
+本仓库相对上游的修改说明（Apache License 2.0 第 4(b) 条要求）
+────────────────────────────────────────────────────────────────────
+
+已完成的修改（仅文档与项目标识层面，尚未改动功能代码）：
+
+1. 新增 README.md（中文），作为本仓库的主要说明文件；上游原始英文 README 原样
+   保留为 README.upstream.md，便于对照与归属。
+2. 新增本 NOTICE 文件。
+3. 新增 docs/ 目录：
+   - docs/断点续传方案.md     断点续传的代码分析、协议扩展设计与实施路线
+   - docs/feasibility-probe.py 可行性验证脚本（Python 复刻核心算法）
+   - docs/改名清单.md         将项目标识从上游名称切换为本项目名称的待办清单
+4. 修改 AGENTS.md 与 CONTRIBUTING.md：仅在文件顶部增加"本仓库是二次开发分支"
+   的显著说明，其后的上游原文保持不变。
+5. 未修改的文件：全部源代码、LICENSE、app/assets/CHANGELOG.md 等保持上游原样。
+
+计划中的修改：
+   断点续传功能（协议扩展、Rust 核心、Dart/Flutter 层），将在后续提交中实现，
+   并在 app/assets/CHANGELOG.md 中记录。
+
+────────────────────────────────────────────────────────────────────
+商标说明
+────────────────────────────────────────────────────────────────────
+
+"LocalSend" 名称及相关徽标归 LocalSend 项目所有。Apache License 2.0 第 6 条
+不授予商标许可。本仓库仅以文字形式说明代码来源，不代表官方，也不将 LocalSend
+的名称或徽标用作自身标识。
