@@ -40,6 +40,9 @@ ARG ANDROID_BUILD_TOOLS=36.0.0
 # Debian 包源主机名。部分网络下 deb.debian.org 极慢（实测 20s 超时，而阿里云 0.2s、
 # 中科大 0.6s），可用 DEBIAN_MIRROR=mirrors.aliyun.com 覆盖。
 ARG DEBIAN_MIRROR=deb.debian.org
+# 可选的 crates.io 源（sparse 索引地址）。国内直连 index.crates.io 实测 21s 才返回一个
+# 小文件，可换成 sparse+https://rsproxy.cn/index/ 或 sparse+https://mirrors.ustc.edu.cn/crates.io-index/
+ARG CARGO_MIRROR=
 
 # =============================================================================
 # 1) Rust 层（含完整测试）
@@ -56,6 +59,12 @@ ARG RUST_TOOLCHAIN=1.97.1
 ARG RUSTUP_DIST_SERVER=https://static.rust-lang.org
 ENV RUSTUP_TOOLCHAIN=${RUST_TOOLCHAIN}
 ENV RUSTUP_DIST_SERVER=${RUSTUP_DIST_SERVER}
+
+ARG CARGO_MIRROR
+RUN if [ -n "${CARGO_MIRROR}" ]; then \
+        printf '[source.crates-io]\nreplace-with = "mirror"\n\n[source.mirror]\nregistry = "%s"\n' "${CARGO_MIRROR}" > "${CARGO_HOME}/config.toml"; \
+        cat "${CARGO_HOME}/config.toml"; \
+    fi
 
 ENV DEBIAN_FRONTEND=noninteractive
 # build-essential/pkg-config/libssl-dev/cmake/perl：ring、dtls、openssl-sys 等依赖的构建兜底

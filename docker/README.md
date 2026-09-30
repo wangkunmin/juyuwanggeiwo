@@ -44,6 +44,22 @@ REGISTRY=docker.m.daocloud.io RUSTUP_DIST_SERVER=https://rsproxy.cn \
 DEBIAN_MIRROR=mirrors.aliyun.com docker compose -f docker/compose.yaml build rust-test
 ```
 
+- **`index.crates.io` 太慢时**（实测 21s 才返回索引小文件），换 crates.io sparse 源：
+
+```bash
+CARGO_MIRROR=sparse+https://rsproxy.cn/index/ docker compose -f docker/compose.yaml build rust-test
+```
+
+四个变量可一起使用：
+
+```bash
+REGISTRY=docker.m.daocloud.io \
+RUSTUP_DIST_SERVER=https://rsproxy.cn \
+DEBIAN_MIRROR=mirrors.aliyun.com \
+CARGO_MIRROR=sparse+https://rsproxy.cn/index/ \
+docker compose -f docker/compose.yaml build rust-test
+```
+
 `REGISTRY` 只影响基础镜像从哪拉取；`debian`、`rust` 这类官方镜像在镜像源上都以 `library/` 命名空间存在，Dockerfile 已按此拼装。
 
 ## 2. 快速开始

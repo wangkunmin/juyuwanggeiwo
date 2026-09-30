@@ -26,6 +26,7 @@ services:
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
     image: lsg-rust-check
     working_dir: /src
     volumes:
@@ -45,6 +46,7 @@ services:
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
     image: lsg-rust-test
     working_dir: /src
     volumes:
@@ -64,6 +66,7 @@ services:
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
     image: lsg-dart-format
     working_dir: /src
     volumes:
@@ -82,6 +85,7 @@ services:
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
     image: lsg-dart-test
     working_dir: /src
     volumes:
@@ -106,6 +110,7 @@ services:
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
     image: lsg-version-check
     working_dir: /src
     volumes:
@@ -122,6 +127,7 @@ services:
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
     image: lsg-android
     working_dir: /src
     volumes:
@@ -144,6 +150,7 @@ services:
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
     image: lsg-linux
     working_dir: /src
     volumes:
@@ -164,6 +171,7 @@ services:
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        CARGO_MIRROR: ${CARGO_MIRROR:-}
     image: lsg-dev
     working_dir: /src
     volumes:
