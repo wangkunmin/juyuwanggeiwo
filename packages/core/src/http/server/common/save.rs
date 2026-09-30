@@ -475,7 +475,7 @@ async fn write_file_from_receiver(
             };
         }
     };
-    let mut file = buffered.get_mut();
+    let file = buffered.get_mut();
 
     let mut written: u64 = offset;
 
@@ -655,6 +655,8 @@ async fn seed_hasher_from_prefix(
     hasher: &mut sha2::Sha256,
     offset: u64,
 ) -> Result<(), String> {
+    use sha2::Digest;
+
     file.seek(std::io::SeekFrom::Start(0))
         .await
         .map_err(|e| format!("Failed to read the existing prefix: {e}"))?;

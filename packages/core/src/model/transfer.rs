@@ -94,6 +94,117 @@ impl FileContent {
             }
         }
     }
+
+    /// Like [`FileContent::into_stream`], but skips the first `offset` bytes.
+    ///
+    /// Used when continuing an interrupted transfer: the peer already holds the
+    /// prefix, so only the tail is transmitted. `offset == 0` behaves exactly
+    /// like [`FileContent::into_stream`].
+    ///
+    /// A stream that is shorter than `offset`, or a file that cannot be seeked,
+    /// yields an [`Err`] item instead of silently sending a wrong range.
+    pub fn into_stream_from(self, offset: u64) -> FileStream {
+        if offset == 0 {
+            return self.into_stream();
+        }
+
+        match self {
+            FileContent::Stream(mut rx) => {
+                tracing::info!("Skipping {offset} bytes of the provided byte stream");
+                let (tx, out_rx) = mpsc::channel(FILE_CHANNEL_CAPACITY);
+                tokio::spawn(async move {
+                    let mut remaining = offset;
+                    while let Some(chunk) = rx.recv().await {
+                        if (chunk.len() as u64) <= remaining {
+                            remaining -= chunk.len() as u64;
+                        } else {
+                            let skip = remaining as usize;
+                            remaining = 0;
+                            if tx.send(Ok(chunk.slice(skip..))).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    if remaining > 0 {
+                        let _ = tx
+                            .send(Err(std::io::Error::new(
+                                std::io::ErrorKind::UnexpectedEof,
+                                format!("Stream ended {remaining} bytes before the resume offset"),
+                            )))
+                            .await;
+                    }
+                });
+                Box::pin(ReceiverStream::new(out_rx))
+            }
+            FileContent::Path(path) => {
+                tracing::info!(
+                    "Reading {} from byte offset {offset}",
+                    path.display()
+                );
+                let (tx, rx) = mpsc::channel(FILE_CHANNEL_CAPACITY);
+                tokio::spawn(async move {
+                    match tokio::fs::File::open(&path).await {
+                        Ok(mut file) => {
+                            if let Err(e) = seek_to(&mut file, offset).await {
+                                let _ = tx
+                                    .send(Err(std::io::Error::new(
+                                        e.kind(),
+                                        format!("Failed to seek {}: {e}", path.display()),
+                                    )))
+                                    .await;
+                                return;
+                            }
+                            read_file_into_sender(file, tx).await;
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to open {}: {e}", path.display());
+                            let _ = tx
+                                .send(Err(std::io::Error::new(
+                                    e.kind(),
+                                    format!("Failed to open {}: {e}", path.display()),
+                                )))
+                                .await;
+                        }
+                    }
+                });
+                Box::pin(ReceiverStream::new(rx))
+            }
+            #[cfg(target_os = "android")]
+            FileContent::Fd(fd) => {
+                use std::os::fd::FromRawFd;
+
+                tracing::info!("Reading file descriptor {fd} from byte offset {offset}");
+                let (tx, rx) = mpsc::channel(FILE_CHANNEL_CAPACITY);
+                // SAFETY: the descriptor is owned by this transfer; wrapping it in
+                // a File transfers that ownership so it is closed once reading finishes.
+                let std_file = unsafe { std::fs::File::from_raw_fd(fd) };
+                let mut file = tokio::fs::File::from_std(std_file);
+                tokio::spawn(async move {
+                    if let Err(e) = seek_to(&mut file, offset).await {
+                        let _ = tx
+                            .send(Err(std::io::Error::new(
+                                e.kind(),
+                                format!("Failed to seek the file descriptor: {e}"),
+                            )))
+                            .await;
+                        return;
+                    }
+                    read_file_into_sender(file, tx).await;
+                });
+                Box::pin(ReceiverStream::new(rx))
+            }
+        }
+    }
+}
+
+/// Seeks `file` to `offset`.
+///
+/// A document backed file descriptor (Android SAF) may not support seeking; that
+/// is reported as an error so the caller can fall back to a fresh transfer.
+async fn seek_to(file: &mut tokio::fs::File, offset: u64) -> std::io::Result<u64> {
+    use tokio::io::AsyncSeekExt;
+
+    file.seek(std::io::SeekFrom::Start(offset)).await
 }
 
 /// Reads `file` to EOF, forwarding chunks on `tx`.

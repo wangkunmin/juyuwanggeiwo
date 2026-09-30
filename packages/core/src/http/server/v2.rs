@@ -310,7 +310,7 @@ pub(crate) async fn prepare_upload(
         }
     };
 
-    let accepted_ids = match decision {
+    let offsets = match decision {
         PrepareUploadDecisionV2::Decline => {
             pending_guard.clear().await;
             return Err(AppError::Message(

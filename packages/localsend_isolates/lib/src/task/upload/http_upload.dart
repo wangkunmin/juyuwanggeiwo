@@ -22,6 +22,8 @@ class HttpUploadService {
     required String? path,
     required int? fileDescriptor,
     required int contentLength,
+    /// Bytes the receiver already holds; the client skips them (断点续传).
+    required int offset,
     required Device target,
     required String? remoteSessionId,
     required String fileId,
@@ -46,6 +48,7 @@ class HttpUploadService {
           path: path,
           fileDescriptor: fileDescriptor,
           contentLength: BigInt.from(contentLength),
+          offset: BigInt.from(offset),
           cancelToken: cancelToken,
         )
         .forEach((event) {

@@ -140,7 +140,7 @@ impl LsHttpClient {
         progress: impl Fn(u64) + Send + 'static,
         cancel: tokio_util::sync::CancellationToken,
     ) -> Result<(), ClientError> {
-        let body = upload_body(content, progress);
+        let body = upload_body(content, offset, progress);
         match self {
             LsHttpClient::V2(client) => {
                 client
@@ -183,10 +183,13 @@ impl LsHttpClient {
 /// upload that the receiver stores as a short (often empty) file.
 pub(super) fn upload_body(
     content: model::transfer::FileContent,
+    offset: u64,
     progress: impl Fn(u64) + Send + 'static,
 ) -> reqwest::Body {
     let mut sent = 0_u64;
-    let stream = content.into_stream().map(move |chunk| {
+    // `offset` skips the bytes the receiver already holds; the progress callback
+    // keeps counting only what this request actually sends.
+    let stream = content.into_stream_from(offset).map(move |chunk| {
         let chunk = chunk?;
         sent += chunk.len() as u64;
         progress(sent);

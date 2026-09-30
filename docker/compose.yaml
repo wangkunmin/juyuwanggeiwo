@@ -61,7 +61,17 @@ services:
       - ..:/src
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
-    command: ["bash", "-c", "cd packages/core && cargo test --features full"]
+    # 与 CI 的 rust job 对齐：clippy(core, --all-targets) + core 测试 + server 测试 +
+    # 插件与 CLI 的 cargo check
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        cd packages/core && cargo clippy --features full --all-targets
+        cargo test --features full
+        cd /src && cargo test --package server
+        cargo check --package rust_lib_localsend_app --package localsend-cli
 
   # ---------- Dart/Flutter：格式检查（排除生成目录 lib/gen） ----------
   dart-format:

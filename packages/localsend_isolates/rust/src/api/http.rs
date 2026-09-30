@@ -116,6 +116,10 @@ impl RsHttpClient {
             let progress_sink = sink.clone();
             let progress = move |sent| {
                 let now = std::time::Instant::now();
+                // `sent` counts only the bytes of this request; a resumed upload
+                // starts at `offset`, so the reported fraction stays comparable
+                // with the receiver's progress.
+                let sent = offset + sent;
                 let is_final = sent >= content_length;
                 if !is_final {
                     if let Some(last) = last_emit.get() {

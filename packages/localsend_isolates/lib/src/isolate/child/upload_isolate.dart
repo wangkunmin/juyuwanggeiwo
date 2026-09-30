@@ -31,12 +31,17 @@ class HttpUploadFile {
   final List<int>? fileBytes;
   final int fileSize;
 
+  /// Byte offset this upload starts at: `0` sends the whole file, a greater
+  /// value skips the prefix the receiver already holds (断点续传).
+  final int offset;
+
   HttpUploadFile({
     required this.remoteFileToken,
     required this.fileId,
     required this.filePath,
     required this.fileBytes,
     required this.fileSize,
+    this.offset = 0,
   });
 }
 
@@ -174,6 +179,7 @@ Future<void> setupHttpUploadIsolate(
                       path: !isContentUri ? filePath : null,
                       fileDescriptor: fileDescriptor,
                       contentLength: file.fileSize,
+                      offset: file.offset,
                       target: uploadTask.device,
                       remoteSessionId: uploadTask.remoteSessionId,
                       fileId: file.fileId,

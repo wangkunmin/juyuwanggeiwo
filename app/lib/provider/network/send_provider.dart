@@ -608,6 +608,8 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
             filePath: file.path,
             fileBytes: file.bytes,
             fileSize: file.file.size,
+            // TODO(P2): 从 prepare-upload 响应的 resume 字段取真实偏移
+            offset: 0,
           ),
     ];
 
