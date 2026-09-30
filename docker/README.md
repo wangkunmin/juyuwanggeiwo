@@ -50,6 +50,14 @@ DEBIAN_MIRROR=mirrors.aliyun.com docker compose -f docker/compose.yaml build rus
 CARGO_MIRROR=sparse+https://rsproxy.cn/index/ docker compose -f docker/compose.yaml build rust-test
 ```
 
+- **Flutter SDK / pub 下载慢时**（实测官方源约 1 MB/s，国内镜像约 8.6 MB/s）：
+
+```bash
+FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+PUB_HOSTED_URL=https://pub.flutter-io.cn \
+docker compose -f docker/compose.yaml build dart-test
+```
+
 四个变量可一起使用：
 
 ```bash
@@ -118,7 +126,7 @@ FRB 代码生成（注意生成物会写回宿主仓库，执行前先确保工�
 ```bash
 docker build -f docker/Dockerfile --target codegen -t lsg-codegen .
 docker run --rm -v "$PWD":/src lsg-codegen \
-  sh -lc 'cd packages/localsend_isolates && flutter_rust_bridge_codegen generate'
+  sh -c 'cd packages/localsend_isolates && flutter_rust_bridge_codegen generate'
 ```
 
 ## 4. 平台限制（重要）

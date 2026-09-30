@@ -43,6 +43,10 @@ ARG DEBIAN_MIRROR=deb.debian.org
 # 可选的 crates.io 源（sparse 索引地址）。国内直连 index.crates.io 实测 21s 才返回一个
 # 小文件，可换成 sparse+https://rsproxy.cn/index/ 或 sparse+https://mirrors.ustc.edu.cn/crates.io-index/
 ARG CARGO_MIRROR=
+# Flutter SDK / pub 源。国内直连 storage.googleapis.com 实测约 1 MB/s，
+# 而 storage.flutter-io.cn 约 8.6 MB/s；pub 同理可用 https://pub.flutter-io.cn
+ARG FLUTTER_STORAGE_BASE_URL=https://storage.googleapis.com
+ARG PUB_HOSTED_URL=https://pub.dev
 
 # =============================================================================
 # 1) Rust 层（含完整测试）
@@ -111,10 +115,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # =============================================================================
 FROM ${REGISTRY}/library/debian:bookworm-slim AS flutter-base
 ARG FLUTTER_VERSION
+ARG FLUTTER_STORAGE_BASE_URL
+ARG PUB_HOSTED_URL
 
 ENV DEBIAN_FRONTEND=noninteractive \
     FLUTTER_ROOT=/opt/flutter \
     PUB_CACHE=/root/.pub-cache \
+    FLUTTER_STORAGE_BASE_URL=${FLUTTER_STORAGE_BASE_URL} \
+    PUB_HOSTED_URL=${PUB_HOSTED_URL} \
     PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
 
 ARG DEBIAN_MIRROR
@@ -130,7 +138,7 @@ RUN set -eux; \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL --retry 3 \
-        "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
+        "${FLUTTER_STORAGE_BASE_URL}/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
         -o /tmp/flutter.tar.xz \
     && tar -xJf /tmp/flutter.tar.xz -C /opt \
     && rm /tmp/flutter.tar.xz \

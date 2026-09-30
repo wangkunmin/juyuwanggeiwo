@@ -30,6 +30,8 @@ services:
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
         CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     image: lsg-rust-check
     working_dir: /src
     volumes:
@@ -37,7 +39,7 @@ services:
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
     # --all-targets 连测试与示例一起类型检查，改名/协议改动最容易在这里暴露
-    command: ["bash", "-lc", "cd packages/core && cargo check --features full --all-targets"]
+    command: ["bash", "-c", "cd packages/core && cargo check --features full --all-targets"]
 
   # ---------- Rust：与 CI rust job 对齐的完整测试 ----------
   rust-test:
@@ -51,13 +53,15 @@ services:
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
         CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     image: lsg-rust-test
     working_dir: /src
     volumes:
       - ..:/src
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
-    command: ["bash", "-lc", "cd packages/core && cargo test --features full"]
+    command: ["bash", "-c", "cd packages/core && cargo test --features full"]
 
   # ---------- Dart/Flutter：格式检查（排除生成目录 lib/gen） ----------
   dart-format:
@@ -71,12 +75,14 @@ services:
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
         CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     image: lsg-dart-format
     working_dir: /src
     volumes:
       - ..:/src
       - pub-cache:/root/.pub-cache
-    command: ["bash", "-lc", "cd app && rm -rf lib/gen && dart format --set-exit-if-changed lib test"]
+    command: ["bash", "-c", "cd app && rm -rf lib/gen && dart format --set-exit-if-changed lib test"]
 
   # ---------- Dart/Flutter：分析 + 测试（app 与 isolates 两个包） ----------
   dart-test:
@@ -90,6 +96,8 @@ services:
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
         CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     image: lsg-dart-test
     working_dir: /src
     volumes:
@@ -115,6 +123,8 @@ services:
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
         CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     image: lsg-version-check
     working_dir: /src
     volumes:
@@ -132,6 +142,8 @@ services:
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
         CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     image: lsg-android
     working_dir: /src
     volumes:
@@ -141,7 +153,7 @@ services:
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
     # 产物：app/build/app/outputs/flutter-apk/app-release.apk（直接落在宿主仓库里）
-    command: ["bash", "-lc", "cd app && flutter build apk --release"]
+    command: ["bash", "-c", "cd app && flutter build apk --release"]
 
   # ---------- Linux 桌面打包 ----------
   linux-app:
@@ -155,6 +167,8 @@ services:
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
         CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     image: lsg-linux
     working_dir: /src
     volumes:
@@ -162,7 +176,7 @@ services:
       - pub-cache:/root/.pub-cache
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
-    command: ["bash", "-lc", "cd app && flutter build linux --release"]
+    command: ["bash", "-c", "cd app && flutter build linux --release"]
 
   # ---------- 交互开发：Rust + Flutter + Android SDK + FRB codegen ----------
   dev:
@@ -176,6 +190,8 @@ services:
         RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
         CARGO_MIRROR: ${CARGO_MIRROR:-}
+        FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
+        PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
     image: lsg-dev
     working_dir: /src
     volumes:
