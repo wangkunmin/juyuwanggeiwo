@@ -642,7 +642,11 @@ Future<void> setupHttpServerIsolate(
             final store = ref.read(_partialTransfersProvider);
             for (final fileId in config.fileNameMap.keys) {
               final file = config.files[fileId];
-              final partial = file == null ? null : store.resumable(senderFingerprint: config.senderFingerprint, file: file);
+              if (file == null) {
+                offsets[fileId] = 0;
+                continue;
+              }
+              final partial = store.resumable(senderFingerprint: config.senderFingerprint, file: file);
               if (partial == null) {
                 offsets[fileId] = 0;
                 continue;
@@ -711,6 +715,8 @@ Future<void> _handleFileUpload({
   required String sessionId,
   required String fileId,
   required FileDto file,
+  // Byte offset this upload starts at (0 = whole file).
+  required int offset,
   required void Function(HttpServerEvent event) emit,
 }) async {
   final config = session.config;

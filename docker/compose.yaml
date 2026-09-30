@@ -134,7 +134,9 @@ services:
         flutter test
         cd ../packages/localsend_isolates
         flutter pub get
-        flutter analyze
+        # 只分析自有代码：rust_builder/cargokit 是随包附带的构建工具，
+        # 不参与 pub 工作区解析（AGENTS.md），其中 45 个 uri_does_not_exist 为既有噪声
+        flutter analyze lib test
         flutter test
 
   # ---------- FRB 代码生成（生成物会写回宿主仓库） ----------
