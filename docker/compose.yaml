@@ -23,6 +23,8 @@ services:
       target: rust-check
       args:
         REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
     image: lsg-rust-check
     working_dir: /src
     volumes:
@@ -39,6 +41,8 @@ services:
       target: rust-test
       args:
         REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
     image: lsg-rust-test
     working_dir: /src
     volumes:
@@ -55,6 +59,8 @@ services:
       target: dart-format
       args:
         REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
     image: lsg-dart-format
     working_dir: /src
     volumes:
@@ -70,6 +76,8 @@ services:
       target: dart-test
       args:
         REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
     image: lsg-dart-test
     working_dir: /src
     volumes:
@@ -91,6 +99,8 @@ services:
       target: version-check
       args:
         REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
     image: lsg-version-check
     working_dir: /src
     volumes:
@@ -104,6 +114,8 @@ services:
       target: android-apk
       args:
         REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
     image: lsg-android
     working_dir: /src
     volumes:
@@ -123,6 +135,8 @@ services:
       target: linux-app
       args:
         REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
     image: lsg-linux
     working_dir: /src
     volumes:
@@ -140,6 +154,8 @@ services:
       target: dev
       args:
         REGISTRY: ${REGISTRY:-docker.io}
+        RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://static.rust-lang.org}
     image: lsg-dev
     working_dir: /src
     volumes:

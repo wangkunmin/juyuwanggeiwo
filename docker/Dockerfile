@@ -43,11 +43,23 @@ ARG ANDROID_BUILD_TOOLS=36.0.0
 # =============================================================================
 FROM ${REGISTRY}/library/${RUST_IMAGE} AS rust
 
+# Rust 工具链固定：
+#  - RUSTUP_TOOLCHAIN 让 rustup 直接使用镜像内已安装的 1.97.1，**不再联网**同步
+#    channel 清单（否则在无法访问 static.rust-lang.org 的网络里会卡住/失败）。
+#    若要改为由仓库的 rust-toolchain.toml 决定，传 RUSTUP_TOOLCHAIN= 空值即可。
+#  - RUSTUP_DIST_SERVER：需要在构建期补装组件（clippy）时用的源；国内可换成
+#    https://rsproxy.cn 或 https://mirrors.ustc.edu.cn/rust-static
+ARG RUST_TOOLCHAIN=1.97.1
+ARG RUSTUP_DIST_SERVER=https://static.rust-lang.org
+ENV RUSTUP_TOOLCHAIN=${RUST_TOOLCHAIN}
+ENV RUSTUP_DIST_SERVER=${RUSTUP_DIST_SERVER}
+
 ENV DEBIAN_FRONTEND=noninteractive
 # build-essential/pkg-config/libssl-dev/cmake/perl：ring、dtls、openssl-sys 等依赖的构建兜底
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential pkg-config libssl-dev cmake perl git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup component add clippy
 
 WORKDIR /src
 COPY . .

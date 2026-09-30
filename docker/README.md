@@ -23,6 +23,14 @@
 REGISTRY=docker.m.daocloud.io docker compose -f docker/compose.yaml build rust-test
 ```
 
+- **`static.rust-lang.org` 不通时**：镜像内已预装 `Rust 1.97.1`，构建默认通过
+  `RUSTUP_TOOLCHAIN=1.97.1` 直接使用它、不再联网同步；只有在补装组件（clippy）时才需要源，
+  可换成国内镜像：
+
+```bash
+RUSTUP_DIST_SERVER=https://rsproxy.cn docker compose -f docker/compose.yaml build rust-test
+```
+
 `REGISTRY` 只影响基础镜像从哪拉取；`debian`、`rust` 这类官方镜像在镜像源上都以 `library/` 命名空间存在，Dockerfile 已按此拼装。
 
 ## 2. 快速开始
