@@ -185,9 +185,34 @@ RUN set -eux; \
     test "$pv" = "$iv"; test "$pv" = "$cv"; test "$pv.0" = "$mv"; test "$pv" = "$ax"; test "$pv" = "$aa"; \
     echo "版本一致性检查通过"
 
-# ---- codegen：flutter_rust_bridge 代码生成（预编译二进制，免 cargo install） --
+# ---- codegen：flutter_rust_bridge 代码生成 ---------------------------------
+#
+# 需要三样东西：
+#  1. 预编译的 flutter_rust_bridge_codegen（从 GitHub releases 取，免 cargo install）
+#  2. Rust 工具链：codegen 会调用 `cargo expand` 展开宏
+#  3. cargo-expand + nightly：`cargo expand` 依赖 nightly 的 -Zunpretty=expanded，
+#     因此把 RUSTUP_TOOLCHAIN 固定为 nightly（环境变量优先于仓库的
+#     rust-toolchain.toml，否则会用回 stable 1.97.1 而失败）
 FROM flutter-base AS codegen
 ARG FRB_VERSION
+ARG RUSTUP_DIST_SERVER=https://static.rust-lang.org
+ARG CARGO_MIRROR=
+
+ENV CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    RUSTUP_DIST_SERVER=${RUSTUP_DIST_SERVER} \
+    RUSTUP_TOOLCHAIN=nightly \
+    PATH=/usr/local/cargo/bin:$PATH
+
+COPY --from=rust /usr/local/cargo /usr/local/cargo
+COPY --from=rust /usr/local/rustup /usr/local/rustup
+
+RUN set -eux; \
+    rustup toolchain install nightly --profile minimal; \
+    rustup component add rust-src --toolchain nightly; \
+    cargo install cargo-expand --locked; \
+    cargo expand --version
+
 RUN set -eux; \
     case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
       amd64) FRB_TARGET=x86_64-unknown-linux-musl ;; \

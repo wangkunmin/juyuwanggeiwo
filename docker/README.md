@@ -152,6 +152,15 @@ FLUTTER_STORAGE_BASE_URL=http://host.docker.internal:8931 \
   docker compose -f docker/compose.yaml build dart-test
 ```
 
+### 注意：pub 镜像会改写 `pubspec.lock`
+
+用 `PUB_HOSTED_URL` 指向镜像后，`flutter pub get` 会把 lock 文件里每个包的 `url` 改成镜像地址（版本号不变）。
+提交前请回滚，避免给上游锁文件带来无谓 diff：
+
+```bash
+git checkout -- pubspec.lock
+```
+
 ## 4. 平台限制（重要）
 
 | 目标 | 能否在 Linux 容器内构建 | 说明 |
