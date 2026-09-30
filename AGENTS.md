@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> **【本仓库是二次开发分支「续传点 / Xuchuandian」】**
+> **【本仓库是二次开发分支「局域网给我 / Juyuwanggeiwo」】**
 > 本文件来自上游 [localsend/localsend](https://github.com/localsend/localsend)（Apache-2.0），
 > 仅在本说明块新增内容，其余原文未改动（修改记录见 [NOTICE](NOTICE)）。
 >
