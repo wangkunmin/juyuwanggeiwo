@@ -1,0 +1,157 @@
+# 局域网给我 —— 容器化任务编排
+#
+# 用法（在仓库根目录）：
+#   docker compose -f docker/compose.yaml build rust-test
+#   docker compose -f docker/compose.yaml run --rm rust-test
+#   docker compose -f docker/compose.yaml run --rm dart-test
+#   docker compose -f docker/compose.yaml run --rm dev        # 进入交互 shell
+#
+# 国内网络：Docker Hub 直连可能不通，构建时传镜像源
+#   REGISTRY=docker.m.daocloud.io docker compose -f docker/compose.yaml build rust-test
+#
+# 所有服务都挂载宿主仓库到 /src，因此 `run` 时用的永远是宿主上最新的代码；
+# 缓存卷（cargo 注册表/target、pub 缓存、gradle）跨次复用，避免重复下载与全量编译。
+
+name: juyuwanggeiwo
+
+services:
+  # ---------- Rust：类型检查（开发内循环，最快） ----------
+  rust-check:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: rust-check
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+    image: lsg-rust-check
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/src/target
+    command: ["bash", "-lc", "cd packages/core && cargo check --features full"]
+
+  # ---------- Rust：与 CI rust job 对齐的完整测试 ----------
+  rust-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: rust-test
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+    image: lsg-rust-test
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/src/target
+    command: ["bash", "-lc", "cd packages/core && cargo test --features full"]
+
+  # ---------- Dart/Flutter：格式检查（排除生成目录 lib/gen） ----------
+  dart-format:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: dart-format
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+    image: lsg-dart-format
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - pub-cache:/root/.pub-cache
+    command: ["bash", "-lc", "cd app && rm -rf lib/gen && dart format --set-exit-if-changed lib test"]
+
+  # ---------- Dart/Flutter：分析 + 测试（app 与 isolates 两个包） ----------
+  dart-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: dart-test
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+    image: lsg-dart-test
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - pub-cache:/root/.pub-cache
+    command:
+      - bash
+      - -lc
+      - |
+        set -e
+        cd app && flutter analyze && flutter test
+        cd ../packages/localsend_isolates && flutter pub get && flutter test
+
+  # ---------- 发布前：版本一致性检查（pubspec/inno/cli/msix/appimage） ----------
+  version-check:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: version-check
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+    image: lsg-version-check
+    working_dir: /src
+    volumes:
+      - ..:/src
+
+  # ---------- Android APK 打包 ----------
+  android-apk:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: android-apk
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+    image: lsg-android
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - pub-cache:/root/.pub-cache
+      - gradle:/root/.gradle
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/src/target
+    # 产物：app/build/app/outputs/flutter-apk/app-release.apk（直接落在宿主仓库里）
+    command: ["bash", "-lc", "cd app && flutter build apk --release"]
+
+  # ---------- Linux 桌面打包 ----------
+  linux-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: linux-app
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+    image: lsg-linux
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - pub-cache:/root/.pub-cache
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/src/target
+    command: ["bash", "-lc", "cd app && flutter build linux --release"]
+
+  # ---------- 交互开发：Rust + Flutter + Android SDK + FRB codegen ----------
+  dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: dev
+      args:
+        REGISTRY: ${REGISTRY:-docker.io}
+    image: lsg-dev
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - pub-cache:/root/.pub-cache
+      - gradle:/root/.gradle
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/src/target
+    command: ["bash"]
+
+volumes:
+  cargo-registry:
+  cargo-target:
+  pub-cache:
+  gradle:

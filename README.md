@@ -55,6 +55,38 @@
 
 ## 4. 构建
 
+### 4.1 容器化环境（推荐）
+
+仓库自带 Docker 环境，把 Rust、Flutter、Android SDK、FRB codegen 全部按锁定版本装好，并**原样复现 CI 的检查步骤**（依赖缓存走 Docker 卷，重复构建很快）：
+
+```bash
+# Rust：clippy + core 测试 + server 测试 + 插件/CLI 检查（等价 CI 的 rust job）
+docker compose -f docker/compose.yaml run --rm rust-test
+
+# Dart/Flutter：分析 + 测试（等价 CI 的 test job）
+docker compose -f docker/compose.yaml run --rm dart-test
+
+# 格式检查 / 发布前版本一致性 / 打 APK / Linux 桌面
+docker compose -f docker/compose.yaml run --rm dart-format
+docker compose -f docker/compose.yaml run --rm version-check
+docker compose -f docker/compose.yaml run --rm android-apk
+docker compose -f docker/compose.yaml run --rm linux-app
+
+# 交互开发 shell（Rust + Flutter + Android SDK + codegen 全都有）
+docker compose -f docker/compose.yaml run --rm dev
+```
+
+国内网络若无法直连 Docker Hub，加一个变量即可（本机 OrbStack 已验证可用）：
+
+```bash
+REGISTRY=docker.m.daocloud.io docker compose -f docker/compose.yaml run --rm rust-test
+```
+
+完整说明（各 target、平台限制、常见问题）见 [docker/README.md](docker/README.md)。
+注意：**iOS / macOS / Windows 目标无法在 Linux 容器内构建**，须在各自宿主上完成。
+
+### 4.2 本地工具链（不使用容器时）
+
 工具链版本随上游锁定，**必须使用 fvm 管理 Flutter**：
 
 | 组件 | 版本 |

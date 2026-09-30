@@ -1,0 +1,31 @@
+# Docker 构建上下文排除规则
+# 目的：镜像层只包含源码；宿主机上的构建产物与依赖缓存不进上下文。
+# 注意：app/lib/gen 与 *.mapper.dart 是**已入库**的生成代码，必须保留。
+
+# 版本控制与编辑器
+.git
+.gitattributes
+.github
+.idea
+.vscode
+.DS_Store
+
+# Rust 构建产物
+target/
+**/target/
+
+# Dart / Flutter 构建产物与依赖
+.dart_tool/
+**/.dart_tool/
+build/
+**/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/android/.gradle/
+app/android/local.properties
+app/.metadata
+
+# 本地环境文件与文档（README/NOTICE 保留，构建镜像时需要）
+.env
+env
+*.log
