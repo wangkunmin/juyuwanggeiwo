@@ -33,6 +33,7 @@ import 'package:localsend_isolates/model/file_type.dart';
 import 'package:localsend_isolates/model/session_status.dart';
 import 'package:localsend_isolates/rust/api/server.dart' show SessionEndReasonV2;
 import 'package:localsend_isolates/util/rust.dart';
+import 'package:path_provider/path_provider.dart' show getApplicationSupportDirectory;
 import 'package:localsend_isolates/util/transfer_notification.dart';
 import 'package:logging/logging.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -532,7 +533,7 @@ class ReceiveController {
     if (fileNameMap.isEmpty) {
       // nothing selected, the Rust server responds with 204 and creates no session
       // This usually happens for message transfers
-      server.ref.redux(parentIsolateProvider).dispatch(IsolateHttpServerPrepareUploadDecisionAction(config: _buildReceiveConfig(session, {})));
+      server.ref.redux(parentIsolateProvider).dispatch(IsolateHttpServerPrepareUploadDecisionAction(config: await _buildReceiveConfig(session, {})));
       closeSession();
       return;
     }
@@ -601,11 +602,27 @@ class ReceiveController {
     }
     server.ref
         .redux(parentIsolateProvider)
-        .dispatch(IsolateHttpServerPrepareUploadDecisionAction(config: _buildReceiveConfig(updatedSession, fileNameMap)));
+        .dispatch(IsolateHttpServerPrepareUploadDecisionAction(config: await _buildReceiveConfig(updatedSession, fileNameMap)));
   }
 
-  HttpServerReceiveConfig _buildReceiveConfig(ReceiveSessionState session, Map<String, String> fileNameMap) {
+  /// Directory for the receiver's own bookkeeping.
+  ///
+  /// Falls back to `null` when the platform cannot provide one: interrupted
+  /// transfers are then only remembered for the current run.
+  Future<String?> _supportDirectory() async {
+    try {
+      return (await getApplicationSupportDirectory()).path;
+    } catch (e) {
+      _logger.warning('No application support directory, interrupted transfers are not persisted', e);
+      return null;
+    }
+  }
+
+  Future<HttpServerReceiveConfig> _buildReceiveConfig(ReceiveSessionState session, Map<String, String> fileNameMap) async {
     return HttpServerReceiveConfig(
+      // Registry of interrupted transfers: kept in the app support directory so
+      // a restart of the app can still continue them.
+      supportDirectory: await _supportDirectory(),
       sessionId: session.sessionId,
       // Used as the identity part of the resume key: a partial file may only be
       // continued by the device that produced it.

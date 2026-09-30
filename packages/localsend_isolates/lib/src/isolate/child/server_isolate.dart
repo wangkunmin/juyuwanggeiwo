@@ -11,6 +11,7 @@ import 'package:localsend_isolates/src/isolate/child/sync_provider.dart';
 import 'package:localsend_isolates/src/isolate/dto/send_to_isolate_data.dart';
 import 'package:localsend_isolates/src/task/server/file_saver.dart';
 import 'package:localsend_isolates/src/task/server/http_server.dart';
+import 'package:localsend_isolates/src/task/server/partial_transfer_store.dart';
 import 'package:localsend_isolates/util/future_queue.dart';
 import 'package:localsend_isolates/util/rust.dart';
 import 'package:logging/logging.dart';
@@ -86,6 +87,11 @@ class HttpServerReceiveConfig {
   /// for destinations that cannot be written directly.
   final int? androidSdkInt;
 
+  /// Directory the app may write its own bookkeeping to (app support
+  /// directory). Interrupted transfers are remembered here so they survive a
+  /// restart; `null` keeps the registry in memory only.
+  final String? supportDirectory;
+
   HttpServerReceiveConfig({
     required this.sessionId,
     required this.senderFingerprint,
@@ -95,6 +101,7 @@ class HttpServerReceiveConfig {
     required this.cacheDirectory,
     required this.saveToGallery,
     required this.androidSdkInt,
+    this.supportDirectory,
   });
 }
 
@@ -365,53 +372,7 @@ class HttpServerListenerFailedEvent extends HttpServerEvent {
   });
 }
 
-/// One interrupted transfer: where its bytes are and how many arrived.
-///
-/// P2 keeps this in memory (same app run); P3 persists it so a receiver restart
-/// can still continue.
-class _PartialTransfer {
-  _PartialTransfer({
-    required this.target,
-    required this.receivedBytes,
-    required this.fileSize,
-  });
-
-  /// The destination of the previous attempt. It is reused so a resumed file
-  /// keeps its name instead of getting a numbered copy.
-  final FileSaveTarget target;
-
-  final int receivedBytes;
-  final int fileSize;
-}
-
-/// Remembers interrupted transfers, keyed by sender and file identity.
-///
-/// The key prefers the sender-provided SHA-256 and falls back to name + size, so
-/// unrelated files never share an entry; the sender fingerprint keeps one device
-/// from continuing another device's partial file.
-class _PartialTransferStore {
-  final Map<String, _PartialTransfer> _entries = {};
-
-  static String keyOf({required String senderFingerprint, required FileDto file}) {
-    final identity = file.sha256 ?? '${file.fileName}|${file.size}';
-    return '$senderFingerprint|$identity';
-  }
-
-  /// The entry to continue, or `null` when the file must start from scratch.
-  _PartialTransfer? resumable({required String senderFingerprint, required FileDto file}) {
-    final entry = _entries[keyOf(senderFingerprint: senderFingerprint, file: file)];
-    if (entry == null || entry.receivedBytes <= 0 || entry.receivedBytes >= entry.fileSize) {
-      return null;
-    }
-    return entry;
-  }
-
-  void remember(String key, _PartialTransfer transfer) => _entries[key] = transfer;
-
-  void forget(String key) => _entries.remove(key);
-}
-
-final _partialTransfersProvider = Provider((ref) => _PartialTransferStore());
+final _partialTransfersProvider = Provider((ref) => PartialTransferStore());
 
 class _ReceiveSession {
   final HttpServerReceiveConfig config;
@@ -640,6 +601,9 @@ Future<void> setupHttpServerIsolate(
           final offsets = <String, int>{};
           if (config != null && session != null) {
             final store = ref.read(_partialTransfersProvider);
+            // Loads the registry written by an earlier run (no-op after the
+            // first call), so a restart can still continue interrupted files.
+            store.attach(config.supportDirectory);
             for (final fileId in config.fileNameMap.keys) {
               final file = config.files[fileId];
               if (file == null) {
@@ -801,7 +765,7 @@ Future<void> _handleFileUpload({
     }
 
     // The file is complete: drop any remembered partial state for it.
-    ref.read(_partialTransfersProvider).forget(_PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file));
+    ref.read(_partialTransfersProvider).forget(PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file));
   } catch (e, st) {
     // The incomplete file is kept: a retry of this file overwrites it, and
     // otherwise it stays behind as the partial file of a failed transfer.
@@ -811,9 +775,15 @@ Future<void> _handleFileUpload({
     // (the Rust server always delivers it, also when the upload fails).
     final receivedBytes = (lastProgress * dartFile.size).round().clamp(0, dartFile.size);
     final store = ref.read(_partialTransfersProvider);
-    final key = _PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file);
+    final key = PartialTransferStore.keyOf(senderFingerprint: config.senderFingerprint, file: file);
     if (receivedBytes > 0 && receivedBytes < dartFile.size) {
-      store.remember(key, _PartialTransfer(target: target, receivedBytes: receivedBytes, fileSize: dartFile.size));
+      // A half-written file must not look complete, so it gets the .part
+      // suffix; the registry remembers that very target for the next attempt.
+      final partialTarget = markIncomplete(target);
+      store.remember(
+        key,
+        PartialTransfer(target: partialTarget, receivedBytes: receivedBytes, fileSize: dartFile.size),
+      );
       _logger.info('Remembered ${file.fileName} at $receivedBytes bytes for a later resume');
     } else if (receivedBytes == 0) {
       // Nothing (or nothing of this attempt) is on disk: an Android SAF document
@@ -828,18 +798,20 @@ Future<void> _handleFileUpload({
   }
 
   try {
+    // A resumed transfer was written to a `.part` file; it is complete now.
+    final completedTarget = finishIncomplete(target);
     String? filePath;
     bool savedToGallery = false;
     if (shouldSaveToGallery) {
       (savedToGallery, filePath) = await saveCachedFileToGallery(
-        cachedPath: target.displayPath,
+        cachedPath: completedTarget.displayPath,
         destinationDirectory: config.destinationDirectory,
         fileName: desiredName,
         isImage: isImage,
         createdDirectories: session.createdDirectories,
       );
     } else {
-      filePath = target.displayPath;
+      filePath = completedTarget.displayPath;
     }
 
     _logger.info('Saved ${dartFile.fileName}.');
