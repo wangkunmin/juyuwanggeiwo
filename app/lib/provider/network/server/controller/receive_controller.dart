@@ -610,7 +610,7 @@ class ReceiveController {
       // Used as the identity part of the resume key: a partial file may only be
       // continued by the device that produced it.
       senderFingerprint: session.sender.fingerprint,
-      files: {for (final file in session.files.values) file.file.id: file.file},
+      files: {for (final file in session.files.values) file.file.id: file.file.toRust()},
       fileNameMap: fileNameMap,
       destinationDirectory: session.destinationDirectory,
       cacheDirectory: session.cacheDirectory,

@@ -121,13 +121,21 @@ services:
     volumes:
       - ..:/src
       - pub-cache:/root/.pub-cache
+    # 注意用 `bash -c`：登录 shell(-lc) 会加载 /etc/profile 并重置 PATH，
+    # 从而丢掉 /opt/flutter/bin 与 /usr/local/cargo/bin
     command:
       - bash
-      - -lc
+      - -c
       - |
         set -e
-        cd app && flutter analyze && flutter test
-        cd ../packages/localsend_isolates && flutter pub get && flutter test
+        cd app
+        flutter pub get
+        flutter analyze
+        flutter test
+        cd ../packages/localsend_isolates
+        flutter pub get
+        flutter analyze
+        flutter test
 
   # ---------- FRB 代码生成（生成物会写回宿主仓库） ----------
   codegen:

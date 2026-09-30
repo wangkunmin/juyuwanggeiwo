@@ -615,14 +615,15 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
         return;
       }
 
-      final token = response.response?.files[targetFile.file.id];
-      if (token == null) {
+      final acceptedFiles = response.response?.files;
+      final token = acceptedFiles?[targetFile.file.id];
+      if (acceptedFiles == null || token == null) {
         // The receiver declined this file: there is nothing to send.
         _logger.info('Receiver declined ${targetFile.file.fileName} on retry');
         return;
       }
 
-      final offset = response.response?.resume?[targetFile.file.id]?.offset.toInt() ?? 0;
+      final offset = response.response!.resume[targetFile.file.id]?.offset.toInt() ?? 0;
       if (offset > 0) {
         _logger.info('Continuing ${targetFile.file.fileName} at $offset of ${targetFile.file.size} bytes');
       }

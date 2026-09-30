@@ -97,7 +97,7 @@ void main() {
             unawaited(
               Future(() async {
                 session = _ReceiveSession(sessionId, files.keys.toSet());
-                await server.respondPrepareUpload(acceptedFileIds: files.keys.toList());
+                await server.respondPrepareUpload(acceptedOffsets: {for (final id in files.keys) id: 0});
               }),
             );
           case RsServerEvent_FileUpload(:final sessionId, :final fileId, :final file):
@@ -116,6 +116,8 @@ void main() {
                   path: '${tempDir.path}/$fileId',
                   fileDescriptor: null,
                   fileSize: file.size,
+                  // This test does not resume, so it starts at the beginning.
+                  offset: 0,
                 );
                 await for (final progress in progressStream) {
                   if (progress > 0.2) {
