@@ -269,5 +269,112 @@ RUN set -eux; \
     chmod +x /usr/local/bin/flutter; \
     flutter --version
 
+# 运行（生成物会写回宿主仓库，注意先提交/备份）：
+#   docker run --rm -v "$PWD":/src lsg-codegen \
+#     sh -lc 'cd packages/localsend_isolates && flutter_rust_bridge_codegen generate'
+#
+# 说明：本层不含 Flutter，命令里不需要（也不应）执行 flutter pub get。
+
+# =============================================================================
+# 3) Android 打包层：Flutter + Rust(NDK 交叉编译) + Android SDK
+# =============================================================================
+FROM flutter-base AS android-apk
+ARG ANDROID_CMDLINE_TOOLS
+ARG ANDROID_COMPILE_SDK
+ARG ANDROID_BUILD_TOOLS
+ARG NDK_VERSION
+
+ENV ANDROID_SDK_ROOT=/opt/android-sdk \
+    ANDROID_HOME=/opt/android-sdk \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    PATH=/usr/local/cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH
+
+# Rust 工具链：cargokit 在 Flutter 构建期间用 cargo 交叉编译 Rust 插件
+COPY --from=rust /usr/local/cargo /usr/local/cargo
+COPY --from=rust /usr/local/rustup /usr/local/rustup
+
+ARG DEBIAN_MIRROR
+RUN set -eux; \
+    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
+            [ -f "$f" ] || continue; \
+            sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
+        done; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
+        openjdk-17-jdk-headless unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"; \
+    curl -fsSL --retry 3 "https://dl.google.com/android/repository/${ANDROID_CMDLINE_TOOLS}" -o /tmp/cmdline.zip; \
+    unzip -q /tmp/cmdline.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"; \
+    mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"; \
+    rm /tmp/cmdline.zip; \
+    yes | sdkmanager --licenses >/dev/null || true; \
+    sdkmanager --install "platform-tools" "platforms;${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" "cmake;3.22.1"; \
+    NDK="${NDK_VERSION:-$(grep -rhoE 'ndkVersion *= *"[0-9.]+"' /opt/flutter/packages/flutter_tools/gradle/ 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')}"; \
+    NDK="${NDK:-27.0.12077973}"; \
+    echo "Installing NDK $NDK (优先取 Flutter 期望版本)"; \
+    sdkmanager --install "ndk;${NDK}"; \
+    rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+
+RUN --mount=type=cache,target=/root/.pub-cache \
+    --mount=type=cache,target=/root/.gradle \
+    --mount=type=cache,target=/src/target \
+    cd app && flutter pub get && flutter build apk --release
+
+# =============================================================================
+# 4) Linux 桌面打包层（GTK + Rust）
+# =============================================================================
+FROM flutter-base AS linux-app
+
+ENV CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    PATH=/usr/local/cargo/bin:$PATH
+
+COPY --from=rust /usr/local/cargo /usr/local/cargo
+COPY --from=rust /usr/local/rustup /usr/local/rustup
+
+ARG DEBIAN_MIRROR
+RUN set -eux; \
+    if [ "${DEBIAN_MIRROR}" != "deb.debian.org" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do \
+            [ -f "$f" ] || continue; \
+            sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
+        done; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
+        clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+        libstdc++-12-dev libsecret-1-dev libjsoncpp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,target=/root/.pub-cache \
+    --mount=type=cache,target=/src/target \
+    cd app && flutter pub get && flutter build linux --release
+
+# =============================================================================
+# 5) 交互开发层：Rust + Flutter + Android SDK + FRB codegen 全在一台容器里
+#    docker run --rm -it -v "$PWD":/src lsg-dev
+# =============================================================================
+FROM android-apk AS dev
+ARG FRB_VERSION
+# GitHub 不可达时同样可指向本地/内网镜像
+ARG FRB_BASE_URL=https://github.com/fzyzcjy/flutter_rust_bridge/releases/download
+RUN set -eux; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+      amd64) FRB_TARGET=x86_64-unknown-linux-musl ;; \
+      arm64) FRB_TARGET=aarch64-unknown-linux-musl ;; \
+      *) echo "unsupported arch"; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 3 \
+      "${FRB_BASE_URL}/v${FRB_VERSION}/flutter_rust_bridge_codegen-${FRB_TARGET}-v${FRB_VERSION}.tgz" \
+      -o /tmp/frb.tgz; \
+    tar -xzf /tmp/frb.tgz -C /tmp; \
+    find /tmp -type f -name 'flutter_rust_bridge_codegen' -exec install -m 0755 {} /usr/local/bin/ \;; \
+    rm -f /tmp/frb.tgz; \
+    flutter_rust_bridge_codegen --version
 WORKDIR /src
 CMD ["bash"]
