@@ -11,7 +11,7 @@ use localsend::http::server::common::save::{FileUploadTarget, SaveOutcome, SaveR
 use localsend::http::server::v2::{PrepareUploadDecisionV2, ServerEventV2, SessionEndReasonV2};
 use localsend::model::discovery::ProtocolType;
 use localsend::model::transfer::FileDto;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
