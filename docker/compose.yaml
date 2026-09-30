@@ -17,10 +17,13 @@ name: juyuwanggeiwo
 services:
   # ---------- Rust：类型检查（开发内循环，最快） ----------
   rust-check:
+    # 基于工具链基础层：镜像只装工具链，编译在 `run` 时进行并写入 cargo-* 卷，
+    # 因此反复运行是增量的（Dockerfile 里的 rust-check/rust-test target 用于
+    # 一次性的“构建即验证”，见 docker/README.md）
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: rust-check
+      target: rust
       args:
         REGISTRY: ${REGISTRY:-docker.io}
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
@@ -33,14 +36,15 @@ services:
       - ..:/src
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
-    command: ["bash", "-lc", "cd packages/core && cargo check --features full"]
+    # --all-targets 连测试与示例一起类型检查，改名/协议改动最容易在这里暴露
+    command: ["bash", "-lc", "cd packages/core && cargo check --features full --all-targets"]
 
   # ---------- Rust：与 CI rust job 对齐的完整测试 ----------
   rust-test:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: rust-test
+      target: rust
       args:
         REGISTRY: ${REGISTRY:-docker.io}
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
@@ -60,7 +64,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: dart-format
+      target: flutter-base
       args:
         REGISTRY: ${REGISTRY:-docker.io}
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}
@@ -79,7 +83,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: dart-test
+      target: flutter-base
       args:
         REGISTRY: ${REGISTRY:-docker.io}
         RUST_TOOLCHAIN: ${RUST_TOOLCHAIN:-1.97.1}

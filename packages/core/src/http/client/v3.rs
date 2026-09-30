@@ -214,8 +214,10 @@ impl LsHttpClientV3 {
         file_id: &str,
         token: &str,
         body: reqwest::Body,
+        offset: u64,
         cancel: CancellationToken,
     ) -> Result<(), ClientError> {
+        let _ = offset; // v3 is not wired up yet; resume is a v2 extension for now
         let send = self
             .client
             .post(

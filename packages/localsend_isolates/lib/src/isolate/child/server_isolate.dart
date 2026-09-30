@@ -218,10 +218,16 @@ class HttpServerFileUploadEvent extends HttpServerEvent {
   final String fileId;
   final FileDto file;
 
+  /// Byte offset this upload starts at: `0` means the file is written from the
+  /// beginning, a greater value means the receiver already holds that many
+  /// bytes and the content must be appended (resume, a local extension).
+  final int offset;
+
   HttpServerFileUploadEvent({
     required this.sessionId,
     required this.fileId,
     required this.file,
+    required this.offset,
   });
 }
 
@@ -467,7 +473,7 @@ Future<void> setupHttpServerIsolate(
                       files: files,
                     ),
                   );
-                case RsServerEvent_FileUpload(:final sessionId, :final fileId, :final file):
+                case RsServerEvent_FileUpload(:final sessionId, :final fileId, :final file, :final offset):
                   final session = holder.session;
                   if (session == null || session.config.sessionId != sessionId || !session.config.fileNameMap.containsKey(fileId)) {
                     _logger.warning('Rejecting upload of file $fileId: no matching active session');
@@ -489,6 +495,7 @@ Future<void> setupHttpServerIsolate(
                         sessionId: sessionId,
                         fileId: fileId,
                         file: file,
+                        offset: offset.toInt(),
                       ),
                     );
 
@@ -498,6 +505,7 @@ Future<void> setupHttpServerIsolate(
                       sessionId: sessionId,
                       fileId: fileId,
                       file: file,
+                      offset: offset.toInt(),
                       emit: emit,
                     );
                   });
@@ -570,7 +578,9 @@ Future<void> setupHttpServerIsolate(
           // An empty fileNameMap accepts nothing: the Rust server responds
           // with 204 and creates no session.
           ref.read(_receiveSessionProvider).session = config == null || config.fileNameMap.isEmpty ? null : _ReceiveSession(config);
-          await ref.read(httpServerProvider).respondPrepareUpload(acceptedFileIds: config?.fileNameMap.keys.toList());
+          await ref.read(httpServerProvider).respondPrepareUpload(
+            acceptedOffsets: config == null ? null : {for (final fileId in config.fileNameMap.keys) fileId: 0},
+          );
           return;
         case HttpServerCancelSessionTask cancelTask:
           final holder = ref.read(_receiveSessionProvider);
@@ -686,6 +696,7 @@ Future<void> _handleFileUpload({
           path: target.path,
           fileDescriptor: target.fileDescriptor,
           fileSize: dartFile.size,
+          offset: offset,
         );
     await for (final progress in progressStream) {
       emit(

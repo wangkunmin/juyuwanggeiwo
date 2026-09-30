@@ -48,9 +48,15 @@ class HttpServerService {
   }
 
   /// Answers a pending prepare-upload request.
-  /// [acceptedFileIds] is the subset of the offered files to accept; `null` declines the request.
-  Future<void> respondPrepareUpload({required List<String>? acceptedFileIds}) async {
-    await _requireServer().respondPrepareUpload(acceptedFileIds: acceptedFileIds);
+  ///
+  /// [acceptedOffsets] maps each accepted file ID to the number of bytes the
+  /// receiver already holds for it (`0` starts from scratch); `null` declines
+  /// the request. Offsets greater than zero are advertised to the sender, which
+  /// may then upload only the missing tail.
+  Future<void> respondPrepareUpload({required Map<String, int>? acceptedOffsets}) async {
+    await _requireServer().respondPrepareUpload(
+      acceptedOffsets: acceptedOffsets?.map((fileId, offset) => MapEntry(fileId, BigInt.from(offset))),
+    );
   }
 
   /// Answers a pending file upload with the target the file should be saved to
@@ -68,6 +74,7 @@ class HttpServerService {
     required String? path,
     required int? fileDescriptor,
     required int fileSize,
+    required int offset,
   }) {
     return _requireServer().respondFileUpload(
       sessionId: sessionId,
@@ -75,6 +82,7 @@ class HttpServerService {
       path: path,
       fileDescriptor: fileDescriptor,
       fileSize: BigInt.from(fileSize),
+      offset: BigInt.from(offset),
     );
   }
 

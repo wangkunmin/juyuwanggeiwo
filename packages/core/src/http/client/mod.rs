@@ -136,6 +136,7 @@ impl LsHttpClient {
         file_id: &str,
         token: &str,
         content: model::transfer::FileContent,
+        offset: u64,
         progress: impl Fn(u64) + Send + 'static,
         cancel: tokio_util::sync::CancellationToken,
     ) -> Result<(), ClientError> {
@@ -144,14 +145,16 @@ impl LsHttpClient {
             LsHttpClient::V2(client) => {
                 client
                     .upload(
-                        protocol, ip, port, public_key, session_id, file_id, token, body, cancel,
+                        protocol, ip, port, public_key, session_id, file_id, token, body, offset,
+                        cancel,
                     )
                     .await
             }
             LsHttpClient::V3(client) => {
                 client
                     .upload(
-                        protocol, ip, port, public_key, session_id, file_id, token, body, cancel,
+                        protocol, ip, port, public_key, session_id, file_id, token, body, offset,
+                        cancel,
                     )
                     .await
             }

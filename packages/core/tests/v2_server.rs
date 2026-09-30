@@ -4,7 +4,9 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use localsend::crypto::hash::sha256_hex;
 use localsend::http::client::{ClientError, LsHttpClient, LsHttpClientV2};
-use localsend::http::dto_v2::{PrepareUploadRequestDtoV2, RegisterDtoV2};
+use localsend::http::dto_v2::{
+    PrepareUploadRequestDtoV2, PrepareUploadResponseDtoV2, RegisterDtoV2,
+};
 use localsend::http::server::common::save::{FileUploadTarget, SaveResult};
 use localsend::http::server::v2::{PrepareUploadDecisionV2, ServerEventV2, SessionEndReasonV2};
 use localsend::http::server::web::WebConfig;
@@ -49,6 +51,19 @@ async fn start_test_server_with_verification(
     save_dir: Option<PathBuf>,
     verify_checksums: bool,
 ) -> TestServer {
+    start_test_server_with_resume(pin, accept, save_dir, verify_checksums, HashMap::new()).await
+}
+
+/// Like [start_test_server_with_verification], but the application pretends to
+/// already hold `resume_offsets[file_id]` bytes for a file, which it advertises
+/// to the sender in the `resume` field of the prepare-upload response.
+async fn start_test_server_with_resume(
+    pin: Option<String>,
+    accept: bool,
+    save_dir: Option<PathBuf>,
+    verify_checksums: bool,
+    resume_offsets: HashMap<String, u64>,
+) -> TestServer {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     let received: Arc<Mutex<HashMap<String, Vec<u8>>>> = Arc::new(Mutex::new(HashMap::new()));
     let session_ends: Arc<Mutex<Vec<(String, SessionEndReasonV2)>>> =
@@ -59,6 +74,7 @@ async fn start_test_server_with_verification(
     tokio::spawn({
         let received = received.clone();
         let session_ends = session_ends.clone();
+        let resume_offsets = resume_offsets.clone();
         async move {
             while let Some(event) = event_rx.recv().await {
                 match event {
@@ -67,11 +83,14 @@ async fn start_test_server_with_verification(
                         files, decision_tx, ..
                     } => {
                         let decision = match accept {
-                            true => {
-                                PrepareUploadDecisionV2::Accept(
-                                    files.keys().map(|id| (id.clone(), 0_u64)).collect(),
-                                )
-                            }
+                            true => PrepareUploadDecisionV2::Accept(
+                                files
+                                    .keys()
+                                    .map(|id| {
+                                        (id.clone(), resume_offsets.get(id).copied().unwrap_or(0))
+                                    })
+                                    .collect(),
+                            ),
                             false => PrepareUploadDecisionV2::Decline,
                         };
                         let _ = decision_tx.send(decision);
@@ -208,6 +227,20 @@ async fn upload_bytes(
     token: &str,
     bytes: &[u8],
 ) -> Result<(), ClientError> {
+    upload_bytes_from(client, port, session_id, file_id, token, bytes, 0).await
+}
+
+/// Like [upload_bytes], but tells the receiver where the body starts, which is
+/// how a sender continues an interrupted file.
+async fn upload_bytes_from(
+    client: &LsHttpClientV2,
+    port: u16,
+    session_id: &str,
+    file_id: &str,
+    token: &str,
+    bytes: &[u8],
+    offset: u64,
+) -> Result<(), ClientError> {
     let (tx, rx) = mpsc::channel::<Bytes>(4);
     let chunks: Vec<Vec<u8>> = bytes.chunks(1024).map(|chunk| chunk.to_vec()).collect();
     let sent = Arc::new(AtomicU64::new(0));
@@ -237,6 +270,7 @@ async fn upload_bytes(
             file_id,
             token,
             body,
+            offset,
             CancellationToken::new(),
         )
         .await;
@@ -844,6 +878,7 @@ async fn test_upload_of_unreadable_file_fails_instead_of_sending_an_empty_body()
             "file-a",
             &response.files["file-a"],
             FileContent::Path(missing),
+            0,
             |_| {},
             CancellationToken::new(),
         )
@@ -1470,4 +1505,276 @@ async fn test_pin_too_many_attempts() {
         )
         .await;
     assert_status(result, 429);
+}
+
+
+// ---------------------------------------------------------------------------
+// 断点续传（本项目的协议扩展）
+//
+// 接收端在 prepare-upload 响应里用 `resume` 告诉发送端自己已持有多少字节，
+// 发送端在 /upload 上带 `offset` 只补尾部；不带 offset 的旧发送端仍按原逻辑
+// 整包上传（接收端截断重收）。
+// ---------------------------------------------------------------------------
+
+/// 写出一个"上次传输中断后残留在磁盘上的前缀"。
+async fn write_partial_file(save_dir: &std::path::Path, file_id: &str, prefix: &[u8]) {
+    tokio::fs::create_dir_all(save_dir).await.unwrap();
+    tokio::fs::write(save_dir.join(file_id), prefix).await.unwrap();
+}
+
+/// 用给定的 SHA-256（全文件）发起 prepare-upload，并断言被接受。
+async fn prepare_one(
+    client: &LsHttpClientV2,
+    server: &TestServer,
+    file: &FileDto,
+) -> PrepareUploadResponseDtoV2 {
+    let result = client
+        .prepare_upload(
+            ProtocolType::Http,
+            "127.0.0.1",
+            server.port,
+            None,
+            prepare_upload_request(std::slice::from_ref(file)),
+            None,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.status_code, 200);
+    result.response.unwrap()
+}
+
+/// 测试用：字节序列 0..len，便于逐字节比较。
+fn ramp(len: usize) -> Vec<u8> {
+    (0..len).map(|i| i as u8).collect()
+}
+
+#[tokio::test]
+async fn test_resume_advertises_offset_and_appends_tail() {
+    let save_dir = std::env::temp_dir().join(format!("localsend-test-{}", uuid::Uuid::new_v4()));
+    let full = ramp(64);
+    let offset = 20_u64;
+    write_partial_file(&save_dir, "file-a", &full[..offset as usize]).await;
+
+    let server = start_test_server_with_resume(
+        None,
+        true,
+        Some(save_dir.clone()),
+        true,
+        HashMap::from([("file-a".to_string(), offset)]),
+    )
+    .await;
+    let client = LsHttpClientV2::try_new_without_cert().unwrap();
+
+    let mut file = file_dto("file-a", "a.bin", full.len() as u64);
+    file.sha256 = Some(sha256_hex(&full));
+
+    let response = prepare_one(&client, &server, &file).await;
+    assert_eq!(
+        response.resume.get("file-a").map(|info| info.offset),
+        Some(offset),
+        "接收端必须把已持有的字节数告诉发送端"
+    );
+
+    // 只发送尾部
+    upload_bytes_from(
+        &client,
+        server.port,
+        &response.session_id,
+        "file-a",
+        &response.files["file-a"],
+        &full[offset as usize..],
+        offset,
+    )
+    .await
+    .unwrap();
+
+    let received = server.received.lock().await;
+    assert_eq!(
+        received["file-a"], full,
+        "续传后的文件必须与完整内容逐字节一致（全文件 SHA-256 已通过）"
+    );
+}
+
+#[tokio::test]
+async fn test_resume_corrupted_prefix_is_detected() {
+    let save_dir = std::env::temp_dir().join(format!("localsend-test-{}", uuid::Uuid::new_v4()));
+    let full = ramp(64);
+    let offset = 20_u64;
+    let mut prefix = full[..offset as usize].to_vec();
+    prefix[3] ^= 0xff; // 磁盘上的前缀被改写
+    write_partial_file(&save_dir, "file-a", &prefix).await;
+
+    let server = start_test_server_with_resume(
+        None,
+        true,
+        Some(save_dir.clone()),
+        true,
+        HashMap::from([("file-a".to_string(), offset)]),
+    )
+    .await;
+    let client = LsHttpClientV2::try_new_without_cert().unwrap();
+
+    let mut file = file_dto("file-a", "a.bin", full.len() as u64);
+    file.sha256 = Some(sha256_hex(&full));
+
+    let response = prepare_one(&client, &server, &file).await;
+    let result = upload_bytes_from(
+        &client,
+        server.port,
+        &response.session_id,
+        "file-a",
+        &response.files["file-a"],
+        &full[offset as usize..],
+        offset,
+    )
+    .await;
+
+    // 前缀参与了哈希，所以损坏必须被检出（而不是静默产出坏文件）
+    assert_status(result, 422);
+}
+
+#[tokio::test]
+async fn test_resume_rejects_mismatched_offset() {
+    let save_dir = std::env::temp_dir().join(format!("localsend-test-{}", uuid::Uuid::new_v4()));
+    let full = ramp(64);
+    let offset = 20_u64;
+    write_partial_file(&save_dir, "file-a", &full[..offset as usize]).await;
+
+    let server = start_test_server_with_resume(
+        None,
+        true,
+        Some(save_dir.clone()),
+        true,
+        HashMap::from([("file-a".to_string(), offset)]),
+    )
+    .await;
+    let client = LsHttpClientV2::try_new_without_cert().unwrap();
+
+    let mut file = file_dto("file-a", "a.bin", full.len() as u64);
+    file.sha256 = Some(sha256_hex(&full));
+    let response = prepare_one(&client, &server, &file).await;
+
+    // 发送端声称从 5 开始，而接收端持有 20：必须 400，且不写入任何字节
+    let result = upload_bytes_from(
+        &client,
+        server.port,
+        &response.session_id,
+        "file-a",
+        &response.files["file-a"],
+        &full[5..],
+        5,
+    )
+    .await;
+    assert_status(result, 400);
+
+    let on_disk = tokio::fs::read(save_dir.join("file-a")).await.unwrap();
+    assert_eq!(on_disk, full[..offset as usize], "被拒绝的请求不得改动磁盘内容");
+}
+
+#[tokio::test]
+async fn test_resume_without_offset_restarts_from_scratch() {
+    let save_dir = std::env::temp_dir().join(format!("localsend-test-{}", uuid::Uuid::new_v4()));
+    let full = ramp(64);
+    let offset = 20_u64;
+    // 磁盘上是"垃圾前缀"，若接收端不截断就会留下错误内容
+    write_partial_file(&save_dir, "file-a", &vec![0xEE_u8; offset as usize]).await;
+
+    let server = start_test_server_with_resume(
+        None,
+        true,
+        Some(save_dir.clone()),
+        true,
+        HashMap::from([("file-a".to_string(), offset)]),
+    )
+    .await;
+    let client = LsHttpClientV2::try_new_without_cert().unwrap();
+
+    let mut file = file_dto("file-a", "a.bin", full.len() as u64);
+    file.sha256 = Some(sha256_hex(&full));
+    let response = prepare_one(&client, &server, &file).await;
+    assert_eq!(
+        response.resume.get("file-a").map(|info| info.offset),
+        Some(offset),
+        "接收端仍应把可续传信息告诉发送端"
+    );
+
+    // 旧客户端：不带 offset，整包上传
+    upload_bytes(
+        &client,
+        server.port,
+        &response.session_id,
+        "file-a",
+        &response.files["file-a"],
+        &full,
+    )
+    .await
+    .unwrap();
+
+    let received = server.received.lock().await;
+    assert_eq!(
+        received["file-a"], full,
+        "旧发送端整包上传时，接收端必须截断并重收，不能保留旧前缀"
+    );
+}
+
+#[tokio::test]
+async fn test_resume_with_short_prefix_fails() {
+    let save_dir = std::env::temp_dir().join(format!("localsend-test-{}", uuid::Uuid::new_v4()));
+    let full = ramp(64);
+    let offset = 20_u64;
+    // 只有 4 字节：声称的偏移没有磁盘数据支撑
+    write_partial_file(&save_dir, "file-a", &full[..4]).await;
+
+    let server = start_test_server_with_resume(
+        None,
+        true,
+        Some(save_dir.clone()),
+        true,
+        HashMap::from([("file-a".to_string(), offset)]),
+    )
+    .await;
+    let client = LsHttpClientV2::try_new_without_cert().unwrap();
+
+    let mut file = file_dto("file-a", "a.bin", full.len() as u64);
+    file.sha256 = Some(sha256_hex(&full));
+    let response = prepare_one(&client, &server, &file).await;
+
+    let result = upload_bytes_from(
+        &client,
+        server.port,
+        &response.session_id,
+        "file-a",
+        &response.files["file-a"],
+        &full[offset as usize..],
+        offset,
+    )
+    .await;
+    assert_status(result, 500);
+
+    let on_disk = tokio::fs::read(save_dir.join("file-a")).await.unwrap();
+    assert_eq!(on_disk.len(), 4, "失败的中断续传不得破坏原有残留内容");
+}
+
+#[tokio::test]
+async fn test_resume_rejects_offset_beyond_file_size() {
+    let server = start_test_server(None, true, None).await;
+    let client = LsHttpClientV2::try_new_without_cert().unwrap();
+
+    let bytes = b"hello".to_vec();
+    let file = file_dto("file-a", "a.bin", bytes.len() as u64);
+    let response = prepare_one(&client, &server, &file).await;
+
+    // 会话记录的偏移是 0，这里却要求从 6 开始（超过文件大小）
+    let result = upload_bytes_from(
+        &client,
+        server.port,
+        &response.session_id,
+        "file-a",
+        &response.files["file-a"],
+        &bytes,
+        6,
+    )
+    .await;
+    assert_status(result, 400);
 }

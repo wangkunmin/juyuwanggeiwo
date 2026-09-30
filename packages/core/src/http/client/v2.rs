@@ -222,6 +222,11 @@ impl LsHttpClientV2 {
     /// * `file_id` - File ID to upload
     /// * `token` - File-specific token from prepare_upload
     /// * `body` - The streaming request body carrying the file content
+    /// * `offset` - Byte offset the body starts at. `0` uploads the whole file
+    ///   (the receiver creates or truncates it). A value greater than `0` tells
+    ///   the receiver to append, which is only accepted when it matches the
+    ///   offset the receiver advertised in the `resume` field of the
+    ///   prepare-upload response.
     /// * `cancel` - Cancellation token; cancelling it aborts the upload with [`ClientError::Cancelled`]
     ///
     /// # Errors
@@ -240,19 +245,28 @@ impl LsHttpClientV2 {
         file_id: &str,
         token: &str,
         body: reqwest::Body,
+        offset: u64,
         cancel: CancellationToken,
     ) -> Result<(), ClientError> {
+        // The offset parameter is an extension of this fork; it is only sent
+        // when continuing a file, so the request stays byte-identical to the
+        // upstream protocol for fresh uploads.
+        let offset_string = offset.to_string();
+        let mut params: Vec<(&str, &str)> = vec![
+            ("sessionId", session_id),
+            ("fileId", file_id),
+            ("token", token),
+        ];
+        if offset > 0 {
+            params.push(("offset", &offset_string));
+        }
         let url = TargetUrl {
             version: ApiVersion::V2,
             protocol: protocol.as_str(),
             host: ip.to_string(),
             port,
             path: "/upload",
-            params: &[
-                ("sessionId", session_id),
-                ("fileId", file_id),
-                ("token", token),
-            ],
+            params: &params,
         }
         .to_string();
 

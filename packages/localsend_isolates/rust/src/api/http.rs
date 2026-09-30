@@ -107,6 +107,7 @@ impl RsHttpClient {
         path: Option<String>,
         file_descriptor: Option<i32>,
         content_length: u64,
+        offset: u64,
         cancel_token: &RsCancellationToken,
     ) {
         let result = async {
@@ -142,6 +143,7 @@ impl RsHttpClient {
                     file_id,
                     token,
                     content,
+                    offset,
                     progress,
                     cancel_token.inner.clone(),
                 )
