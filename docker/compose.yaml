@@ -286,9 +286,20 @@ services:
           apt-get update -qq && apt-get install -y -qq --no-install-recommends build-essential pkg-config
         fi
         cd app
+        # 发布包需要签名配置（app/android/key.properties，已在 .gitignore 中）。
+        # 这里生成一次性自签证书，仅用于验证"能出包"；正式发布请放入自己的 keystore。
+        # 构建结束会删除该文件，不污染工作区。
+        if [ ! -f android/key.properties ]; then
+          echo "generating a throwaway release keystore (verification build only)"
+          keytool -genkeypair -keystore /tmp/verify-release.jks \
+            -storepass verifypass -keypass verifypass -alias verify \
+            -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Verification Build" >/dev/null 2>&1
+          printf 'storePassword=verifypass\nkeyPassword=verifypass\nkeyAlias=verify\nstoreFile=/tmp/verify-release.jks\n' > android/key.properties
+          trap 'rm -f /src/app/android/key.properties' EXIT
+        fi
         # --no-version-check：跳过联网更新检查（否则 flutter 会 git fetch --tags 卡住）
         flutter --no-version-check pub get
-        flutter --no-version-check build apk --release -v
+        flutter --no-version-check build apk --release
 
   # ---------- Linux 桌面打包 ----------
   linux-app:

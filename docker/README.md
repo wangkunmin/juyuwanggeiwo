@@ -177,6 +177,12 @@ docker builder prune -af
 docker rmi lsg-android    # 重建前先删旧镜像，避免新旧两份叠加
 ```
 
+### 说明：release 签名与验证出包
+
+`flutter build apk --release` 需要签名配置（`app/android/key.properties`，已随上游
+`.gitignore` 忽略）。`android-apk` 服务在缺少该文件时会生成**一次性自签证书**，仅用于
+验证"能出包"，构建结束即删除，不会污染工作区；正式发布请自行准备 keystore。
+
 ### 已知坑：Rosetta 下 Gradle 的文件监听会失败
 
 现象：`Running Gradle task 'assembleRelease'...` 之后出现
