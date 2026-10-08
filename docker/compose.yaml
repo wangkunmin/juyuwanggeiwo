@@ -242,6 +242,13 @@ services:
         NDK_VERSION: ${NDK_VERSION:-28.2.13676358}
     image: lsg-android
     working_dir: /src
+    # flutter 的更新检查会 `git fetch --tags`（github.com）；在受限网络里会让构建
+    # 无限期挂起。命令里统一加 --no-version-check（flutter_command_runner 的
+    # kVersionCheckFlag），这里再把 github 解析到本地，令任何漏网的访问立刻失败
+    # 而不是挂起。
+    extra_hosts:
+      - "github.com:127.0.0.1"
+      - "codeload.github.com:127.0.0.1"
     volumes:
       - ..:/src
       - pub-cache:/root/.pub-cache
@@ -265,7 +272,10 @@ services:
           echo "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:-UsePerfData"
         } > /root/.gradle/gradle.properties.new
         mv /root/.gradle/gradle.properties.new /root/.gradle/gradle.properties
-        cd app && flutter build apk --release
+        cd app
+        # --no-version-check：跳过联网更新检查（否则 flutter 会 git fetch --tags 卡住）
+        flutter --no-version-check pub get
+        flutter --no-version-check build apk --release
 
   # ---------- Linux 桌面打包 ----------
   linux-app:

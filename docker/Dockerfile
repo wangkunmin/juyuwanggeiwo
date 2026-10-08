@@ -148,10 +148,13 @@ RUN curl -fsSL --retry 3 \
         -o /tmp/flutter.tar.xz \
     && tar -xJf /tmp/flutter.tar.xz -C /opt \
     && rm /tmp/flutter.tar.xz \
-    && git config --global --add safe.directory /opt/flutter \
-    # 健全性检查刻意不调用 flutter：它的首次运行会联网做更新检查，网络不畅时会
-    # 让镜像构建无限期卡住（实测 `flutter config --no-analytics` 即卡死）。
-    # 直接验证 SDK 是否解开即可，flutter 本身留到 run 阶段使用。
+    # 健全性检查用内置 Dart SDK：不联网、不触发 flutter 的版本探测。
+    #
+    # 注意：**不要**删除 /opt/flutter/.git。flutter 会从 git 推导 framework/engine
+    # 版本；去掉 .git（或换成自造的 git 仓库）会让它推导出错误 revision，随后去下载
+    # 不存在的 engine 产物并报 “downloaded file is corrupt”。在无法访问 github.com 的
+    # 网络里，flutter 首次运行可能停在 `git fetch --tags`；此时应保证 GitHub 可达，
+    # 或对支持的命令加 `--no-version-check`（详见 docker/README.md 的已知坑一节）。
     && /opt/flutter/bin/cache/dart-sdk/bin/dart --version
 
 WORKDIR /src

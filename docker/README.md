@@ -153,6 +153,30 @@ FLUTTER_STORAGE_BASE_URL=http://host.docker.internal:8931 \
   docker compose -f docker/compose.yaml build dart-test
 ```
 
+### 已知坑：flutter 首次运行会访问 github.com
+
+flutter 工具在缺少版本信息时会执行 `git fetch --tags`（远端是 github.com），在无法访问
+GitHub 的网络里会**无限期挂起**（实测 `flutter config --no-analytics` 与 `flutter pub get`
+都卡在此处）。因此：
+
+- **推荐做法**：所有 flutter 命令加 `--no-version-check`（`android-apk` 服务已内置），
+  它会跳过更新检查，从而不再触发 `git fetch --tags`；
+- 也可用 compose 的 `extra_hosts` 把 github.com 解析到本地，让漏网的访问立刻失败而非挂起；
+- **不要**删除 `/opt/flutter/.git`：flutter 依赖它推导 framework/engine 版本，缺失或伪造
+  git 历史会让它下载不存在的 engine 产物并报 “downloaded file is corrupt”。
+
+### 已知限制：android-apk 需要约 10 GB 空闲磁盘
+
+`android-apk` 镜像包含 Flutter SDK（约 4 GB）、Android SDK + NDK（约 4 GB）与 Rust 工具链，
+构建峰值约 10 GB；打包过程还需要额外 2 GB 左右。若宿主磁盘紧张，VM 无法扩容时会出现
+`No space left on device`。建议先：
+
+```bash
+docker volume rm juyuwanggeiwo_gradle juyuwanggeiwo_pub-cache   # 可重建的缓存
+docker builder prune -af
+docker rmi lsg-android    # 重建前先删旧镜像，避免新旧两份叠加
+```
+
 ### 已知坑：Rosetta 下 Gradle 的文件监听会失败
 
 现象：`Running Gradle task 'assembleRelease'...` 之后出现
