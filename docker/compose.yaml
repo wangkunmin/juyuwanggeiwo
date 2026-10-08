@@ -255,6 +255,8 @@ services:
       - gradle:/root/.gradle
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
+      # 受限网络下把 Gradle 依赖解析指向可用镜像（仅容器内生效）
+      - ./gradle-init.gradle:/root/.gradle/init.gradle:ro
     # 产物：app/build/app/outputs/flutter-apk/app-release.apk（直接落在宿主仓库里）
     # x86_64 模拟（Rosetta）下 Gradle 的原生文件监听会失败并卡住构建，
     # 因此先确保关闭 VFS watch，再打包
@@ -270,15 +272,23 @@ services:
           grep -v -E "^org.gradle.(vfs.watch|jvmargs)=" /root/.gradle/gradle.properties 2>/dev/null || true
           echo "org.gradle.vfs.watch=false"
           echo "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:-UsePerfData"
+          # 不可达仓库快速失败，不要卡住整个构建
+          echo "systemProp.org.gradle.internal.http.connectionTimeout=15000"
+          echo "systemProp.org.gradle.internal.http.socketTimeout=15000"
         } > /root/.gradle/gradle.properties.new
         mv /root/.gradle/gradle.properties.new /root/.gradle/gradle.properties
         # flutter 依赖 SDK 的 git 仓库推导版本；该仓库属主与容器内 root 不同，
         # 需要显式声明为安全目录，否则 git 直接以 dubious ownership 退出
         git config --global --add safe.directory /opt/flutter
+        # cargokit 编译 Rust 时需要宿主 C 链接器（构建脚本/proc-macro）
+        if ! command -v cc >/dev/null 2>&1; then
+          echo "installing build-essential (host cc for cargokit)"
+          apt-get update -qq && apt-get install -y -qq --no-install-recommends build-essential pkg-config
+        fi
         cd app
         # --no-version-check：跳过联网更新检查（否则 flutter 会 git fetch --tags 卡住）
         flutter --no-version-check pub get
-        flutter --no-version-check build apk --release
+        flutter --no-version-check build apk --release -v
 
   # ---------- Linux 桌面打包 ----------
   linux-app:

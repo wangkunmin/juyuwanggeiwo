@@ -1,0 +1,41 @@
+// 容器专用的 Gradle 初始化脚本（只在 docker compose 里挂载，不影响仓库工程本身）。
+//
+// 背景：本机网络里 repo.maven.apache.org（Maven Central）实际下载会挂起（实测 curl
+// 直接超时），maven.google.com 同样不可达；而阿里云镜像可达且很快（约 7.6 MB/s）。
+//
+// 做法：**改写已有仓库的 URL**，而不是新增仓库。新增仓库会触发 Flutter 插件加载器的
+// PREFER_SETTINGS 限制（报 "Build was configured to prefer settings repositories over
+// project repositories"），改写 URL 则完全不受影响，也不会改变仓库数量。
+
+def rewrites = [
+    'repo.maven.apache.org/maven2': 'maven.aliyun.com/repository/public',
+    'repo1.maven.org/maven2': 'maven.aliyun.com/repository/public',
+    'dl.google.com/dl/android/maven2': 'maven.aliyun.com/repository/google',
+    'maven.google.com': 'maven.aliyun.com/repository/google',
+    'plugins.gradle.org/m2': 'maven.aliyun.com/repository/gradle-plugin',
+]
+
+// 映射表以参数传入：方法内的闭包看不到脚本局部变量（Groovy 作用域），
+// 若直接引用会报 "Could not get unknown property 'rewrites'"。
+def applyMirrors(repositories, mapping) {
+    repositories.all { repo ->
+        if (!(repo instanceof MavenArtifactRepository)) {
+            return
+        }
+        def current = repo.url.toString()
+        mapping.each { from, to ->
+            if (current.contains(from)) {
+                repo.url = current.replace(from, to)
+            }
+        }
+    }
+}
+
+settingsEvaluated { settings ->
+    applyMirrors(settings.pluginManagement.repositories, rewrites)
+}
+
+allprojects { project ->
+    applyMirrors(project.repositories, rewrites)
+    applyMirrors(project.buildscript.repositories, rewrites)
+}

@@ -335,8 +335,10 @@ RUN set -eux; \
             sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
         done; \
     fi; \
+    # build-essential：cargokit 编译 Rust 时，构建脚本与 proc-macro 需要宿主 C 链接器
+    # （缺它会报 `linker \`cc\` not found`）
     apt-get update && apt-get install -y --no-install-recommends \
-        openjdk-17-jdk-headless unzip \
+        openjdk-17-jdk-headless unzip build-essential pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
