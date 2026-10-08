@@ -148,6 +148,8 @@ RUN curl -fsSL --retry 3 \
         -o /tmp/flutter.tar.xz \
     && tar -xJf /tmp/flutter.tar.xz -C /opt \
     && rm /tmp/flutter.tar.xz \
+    # flutter 会通过 git 读取 SDK 版本，容器里该仓库属主与 root 不同
+    && git config --global --add safe.directory /opt/flutter \
     # 健全性检查用内置 Dart SDK：不联网、不触发 flutter 的版本探测。
     #
     # 注意：**不要**删除 /opt/flutter/.git。flutter 会从 git 推导 framework/engine

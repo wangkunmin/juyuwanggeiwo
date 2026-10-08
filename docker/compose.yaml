@@ -272,6 +272,9 @@ services:
           echo "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:-UsePerfData"
         } > /root/.gradle/gradle.properties.new
         mv /root/.gradle/gradle.properties.new /root/.gradle/gradle.properties
+        # flutter 依赖 SDK 的 git 仓库推导版本；该仓库属主与容器内 root 不同，
+        # 需要显式声明为安全目录，否则 git 直接以 dubious ownership 退出
+        git config --global --add safe.directory /opt/flutter
         cd app
         # --no-version-check：跳过联网更新检查（否则 flutter 会 git fetch --tags 卡住）
         flutter --no-version-check pub get
