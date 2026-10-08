@@ -1,5 +1,8 @@
 ## Unreleased
 
+- feat: resume interrupted transfers instead of restarting them (protocol extension: optional `resume` field in the prepare-upload response and an optional `offset` parameter on the upload endpoint; both are ignored by peers that do not know them)
+- feat: remember interrupted transfers across restarts, mark incomplete files with a `.part` suffix and verify the whole file checksum after resuming
+- fix: retrying a failed file re-negotiates the session instead of reusing a token the receiver has already invalidated
 - fix(macos): file sharing via Share Extension doesn't work in DMG builds (@ShlomoCode, @vdmkotai)
 - fix: show the real error when a file cannot be read while sending, instead of transferring it as an empty file (@leopalmieri-spec)
 - fix: show the actual save location path for receiving files (@ShlomoCode)
