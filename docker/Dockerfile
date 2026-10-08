@@ -125,6 +125,7 @@ ARG PUB_HOSTED_URL
 
 ENV DEBIAN_FRONTEND=noninteractive \
     FLUTTER_ROOT=/opt/flutter \
+    FLUTTER_SUPPRESS_ANALYTICS=true \
     PUB_CACHE=/root/.pub-cache \
     FLUTTER_STORAGE_BASE_URL=${FLUTTER_STORAGE_BASE_URL} \
     PUB_HOSTED_URL=${PUB_HOSTED_URL} \
@@ -148,8 +149,10 @@ RUN curl -fsSL --retry 3 \
     && tar -xJf /tmp/flutter.tar.xz -C /opt \
     && rm /tmp/flutter.tar.xz \
     && git config --global --add safe.directory /opt/flutter \
-    && flutter config --no-analytics >/dev/null \
-    && flutter --version
+    # 健全性检查刻意不调用 flutter：它的首次运行会联网做更新检查，网络不畅时会
+    # 让镜像构建无限期卡住（实测 `flutter config --no-analytics` 即卡死）。
+    # 直接验证 SDK 是否解开即可，flutter 本身留到 run 阶段使用。
+    && /opt/flutter/bin/cache/dart-sdk/bin/dart --version
 
 WORKDIR /src
 COPY . .
@@ -289,7 +292,10 @@ ENV ANDROID_SDK_ROOT=/opt/android-sdk \
     JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     CARGO_HOME=/usr/local/cargo \
     RUSTUP_HOME=/usr/local/rustup \
-    PATH=/usr/local/cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH
+    PATH=/usr/local/cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH \
+    # x86_64 模拟（Rosetta）下 HotSpot 的 perf data 采样会 SIGBUS 崩溃
+    # （PerfLongVariant::sample），sdkmanager 与 Gradle 都受影响，这里全局关掉
+    JAVA_TOOL_OPTIONS=-XX:-UsePerfData
 
 # Rust 工具链：cargokit 在 Flutter 构建期间用 cargo 交叉编译 Rust 插件。
 #
@@ -336,8 +342,11 @@ RUN set -eux; \
     rm /tmp/cmdline.zip; \
     yes | sdkmanager --licenses >/dev/null || true; \
     sdkmanager --install "platform-tools" "platforms;${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" "cmake;3.22.1"; \
-    NDK="${NDK_VERSION:-$(grep -rhoE 'ndkVersion *= *"[0-9.]+"' /opt/flutter/packages/flutter_tools/gradle/ 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')}"; \
-    NDK="${NDK:-27.0.12077973}"; \
+    # Flutter 期望的 NDK 版本以 gradle_utils.dart 的常量为准（应用用的是
+    # `ndkVersion flutter.ndkVersion`）；取错版本会导致 Gradle 在构建期临时下载
+    # 另一个 NDK，既慢又容易在模拟环境下崩溃。
+    NDK="${NDK_VERSION:-$(grep -hoE "const ndkVersion = '[0-9.]+'" /opt/flutter/packages/flutter_tools/lib/src/android/gradle_utils.dart 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)}"; \
+    NDK="${NDK:-28.2.13676358}"; \
     echo "Installing NDK $NDK (优先取 Flutter 期望版本)"; \
     sdkmanager --install "ndk;${NDK}"; \
     rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android

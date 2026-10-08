@@ -238,6 +238,8 @@ services:
         FLUTTER_SDK_BASE_URL: ${FLUTTER_SDK_BASE_URL:-https://storage.googleapis.com}
         FLUTTER_STORAGE_BASE_URL: ${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}
         PUB_HOSTED_URL: ${PUB_HOSTED_URL:-https://pub.dev}
+        # Flutter 3.41.9 期望 28.2.13676358（见 gradle_utils.dart 的 const ndkVersion）
+        NDK_VERSION: ${NDK_VERSION:-28.2.13676358}
     image: lsg-android
     working_dir: /src
     volumes:
@@ -247,7 +249,23 @@ services:
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
     # 产物：app/build/app/outputs/flutter-apk/app-release.apk（直接落在宿主仓库里）
-    command: ["bash", "-c", "cd app && flutter build apk --release"]
+    # x86_64 模拟（Rosetta）下 Gradle 的原生文件监听会失败并卡住构建，
+    # 因此先确保关闭 VFS watch，再打包
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        mkdir -p /root/.gradle
+        # 模拟环境（Rosetta）下：原生文件监听不可用，且 HotSpot 的 perf data 会触发
+        # SIGBUS 崩溃（PerfLongVariant::sample）；这里把两项设置幂等写入
+        {
+          grep -v -E "^org.gradle.(vfs.watch|jvmargs)=" /root/.gradle/gradle.properties 2>/dev/null || true
+          echo "org.gradle.vfs.watch=false"
+          echo "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -XX:-UsePerfData"
+        } > /root/.gradle/gradle.properties.new
+        mv /root/.gradle/gradle.properties.new /root/.gradle/gradle.properties
+        cd app && flutter build apk --release
 
   # ---------- Linux 桌面打包 ----------
   linux-app:

@@ -153,6 +153,19 @@ FLUTTER_STORAGE_BASE_URL=http://host.docker.internal:8931 \
   docker compose -f docker/compose.yaml build dart-test
 ```
 
+### 已知坑：Rosetta 下 Gradle 的文件监听会失败
+
+现象：`Running Gradle task 'assembleRelease'...` 之后出现
+
+```
+Caught exception: Couldn't poll for events, error = 4
+net.rubygrapefruit.platform.NativeException: Couldn't poll for events
+```
+
+然后构建长时间无进展。原因是在 x86_64 模拟下 Gradle 的原生 inotify 轮询不可用。
+`android-apk` 服务已在启动时自动写入 `org.gradle.vfs.watch=false`（Gradle 退回轮询），
+手工执行时也可自行写入 `~/.gradle/gradle.properties`。
+
 ### 说明：打包类服务在 `run` 时才产出制品
 
 `rust-check`/`rust-test`/`dart-test`/`dart-format` 与 `android-apk`/`linux-app` 都遵循同一模式：
