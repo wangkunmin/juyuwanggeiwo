@@ -291,9 +291,30 @@ ENV ANDROID_SDK_ROOT=/opt/android-sdk \
     RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH
 
-# Rust 工具链：cargokit 在 Flutter 构建期间用 cargo 交叉编译 Rust 插件
-COPY --from=rust /usr/local/cargo /usr/local/cargo
-COPY --from=rust /usr/local/rustup /usr/local/rustup
+# Rust 工具链：cargokit 在 Flutter 构建期间用 cargo 交叉编译 Rust 插件。
+#
+# 这里刻意不 `COPY --from=rust`：rust 层是宿主架构的镜像，而本层在 arm64 机器上
+# 以 amd64 运行（Flutter 的 Linux SDK 只有 x86_64），会把 amd64 的 rust 镜像拉进
+# 构建图——实测该镜像仅约 85 KB/s，1.5 GB 基本拉不动。改为从镜像源直接安装，
+# 版本仍由 RUST_TOOLCHAIN 固定，与 rust 层一致。
+ARG RUST_TOOLCHAIN
+ARG RUSTUP_DIST_SERVER
+ARG CARGO_MIRROR
+ENV RUSTUP_DIST_SERVER=${RUSTUP_DIST_SERVER}
+RUN set -eux; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) rust_arch=x86_64 ;; \
+      arm64) rust_arch=aarch64 ;; \
+      *) echo "unsupported arch"; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 3 "${RUSTUP_DIST_SERVER}/rustup/dist/${rust_arch}-unknown-linux-gnu/rustup-init" -o /tmp/rustup-init; \
+    chmod +x /tmp/rustup-init; \
+    /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "${RUST_TOOLCHAIN}"; \
+    rm -f /tmp/rustup-init; \
+    if [ -n "${CARGO_MIRROR}" ]; then \
+      printf '[source.crates-io]\nreplace-with = "mirror"\n[source.mirror]\nregistry = "%s"\n' "${CARGO_MIRROR}" > "$CARGO_HOME/config.toml"; \
+    fi; \
+    cargo --version
 
 ARG DEBIAN_MIRROR
 RUN set -eux; \
@@ -321,10 +342,9 @@ RUN set -eux; \
     sdkmanager --install "ndk;${NDK}"; \
     rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
 
-RUN --mount=type=cache,target=/root/.pub-cache \
-    --mount=type=cache,target=/root/.gradle \
-    --mount=type=cache,target=/src/target \
-    cd app && flutter pub get && flutter build apk --release
+# 说明：本层只准备工具链，APK 由 `docker compose run --rm android-apk` 生成
+#       （产物落在宿主仓库的 app/build/app/outputs/flutter-apk/）。
+#       在镜像构建期同时打包会让每次构建多花一二十分钟且镜像多出几个 GB。
 
 # =============================================================================
 # 4) Linux 桌面打包层（GTK + Rust）

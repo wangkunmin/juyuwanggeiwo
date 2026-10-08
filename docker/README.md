@@ -114,7 +114,7 @@ docker compose -f docker/compose.yaml run --rm dev
 | `version-check` | 五处版本号一致性 | `packaging` job 前半 |
 | `codegen` | 预编译版 `flutter_rust_bridge_codegen` 2.12.0 + Rust(nightly) + `cargo-expand` | — |
 | `dart-build-runner` | `build_runner`（dart_mappable/freezed/flutter_gen）+ `slang` i18n 生成 | — |
-| `android-apk` | Rust(NDK 交叉编译) + Android SDK → `flutter build apk --release` | — |
+| `android-apk` | Android SDK + NDK + Rust 工具链；`run` 时执行 `flutter build apk --release` | — |
 | `linux-app` | GTK 依赖 + Rust → `flutter build linux --release` | — |
 | `dev` | 以上全部 + 交互 shell | — |
 
@@ -152,6 +152,17 @@ cd /tmp/flutter-mirror && python3 -m http.server 8931 --bind 0.0.0.0 &
 FLUTTER_STORAGE_BASE_URL=http://host.docker.internal:8931 \
   docker compose -f docker/compose.yaml build dart-test
 ```
+
+### 说明：打包类服务在 `run` 时才产出制品
+
+`rust-check`/`rust-test`/`dart-test`/`dart-format` 与 `android-apk`/`linux-app` 都遵循同一模式：
+`docker compose build <服务>` 只准备镜像（工具链、SDK），真正的检查或打包在
+`docker compose run --rm <服务>` 时执行，产物落在宿主仓库里。这样改 Dockerfile 时不必重跑
+一次完整打包，镜像也不会因为塞入构建产物而膨胀数 GB。
+
+`android-apk` 的 Rust 工具链是在该层内用 `RUSTUP_DIST_SERVER` 安装的，而**不是**从 `rust` 层
+拷贝：`rust` 层是宿主架构镜像，而本层在 arm64 机器上以 amd64 运行，拷贝会把 amd64 的 rust
+镜像拖进构建图（实测该镜像拉取只有约 85 KB/s，1.5 GB 基本拉不动）。
 
 ### 注意：pub 镜像会改写 `pubspec.lock`
 
