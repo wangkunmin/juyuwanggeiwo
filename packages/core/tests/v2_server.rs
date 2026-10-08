@@ -1564,6 +1564,68 @@ fn ramp(len: usize) -> Vec<u8> {
     (0..len).map(|i| i as u8).collect()
 }
 
+/// The extension must be invisible to peers that do not know it: with nothing
+/// to resume, the prepare-upload response is byte-for-byte the upstream shape.
+#[tokio::test]
+async fn test_prepare_upload_response_keeps_the_upstream_shape() {
+    let server = start_test_server(None, true, None).await;
+
+    let file = file_dto("file-a", "a.bin", 5);
+    let response = localsend::reqwest::Client::new()
+        .post(format!(
+            "http://127.0.0.1:{}/api/localsend/v2/prepare-upload",
+            server.port
+        ))
+        .body(serde_json::to_vec(&prepare_upload_request(&[file])).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+
+    let text = response.text().await.unwrap();
+    assert!(text.contains("\"sessionId\""), "上游字段缺失: {text}");
+    assert!(text.contains("\"files\""), "上游字段缺失: {text}");
+    assert!(
+        !text.contains("resume"),
+        "没有可续传内容时不得输出扩展字段，否则会改变对上游对端的响应: {text}"
+    );
+}
+
+/// With something to resume, the extension shows up — that is the only case in
+/// which a peer can notice it.
+#[tokio::test]
+async fn test_prepare_upload_response_advertises_resume_only_when_needed() {
+    let save_dir = std::env::temp_dir().join(format!("localsend-test-{}", uuid::Uuid::new_v4()));
+    let full = ramp(64);
+    let offset = 20_u64;
+    write_partial_file(&save_dir, "file-a", &full[..offset as usize]).await;
+
+    let server = start_test_server_with_resume(
+        None,
+        true,
+        Some(save_dir.clone()),
+        true,
+        HashMap::from([("file-a".to_string(), offset)]),
+    )
+    .await;
+
+    let mut file = file_dto("file-a", "a.bin", full.len() as u64);
+    file.sha256 = Some(sha256_hex(&full));
+    let response = localsend::reqwest::Client::new()
+        .post(format!(
+            "http://127.0.0.1:{}/api/localsend/v2/prepare-upload",
+            server.port
+        ))
+        .body(serde_json::to_vec(&prepare_upload_request(&[file])).unwrap())
+        .send()
+        .await
+        .unwrap();
+
+    let text = response.text().await.unwrap();
+    assert!(text.contains("\"resume\""), "应带上可续传信息: {text}");
+    assert!(text.contains(&format!("\"offset\":{offset}")), "偏移值不正确: {text}");
+}
+
 #[tokio::test]
 async fn test_resume_advertises_offset_and_appends_tail() {
     let save_dir = std::env::temp_dir().join(format!("localsend-test-{}", uuid::Uuid::new_v4()));
