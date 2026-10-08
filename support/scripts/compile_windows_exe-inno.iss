@@ -13,7 +13,7 @@
 
 #define MyAppName "局域网给我"
 #define MyAppVersion "1.18.2"
-#define MyAppPublisher "Tien Do Nam"
+#define MyAppPublisher "ynzj"
 #define MyAppURL "https://gitee.com/ynzj/juyuwanggeiwo"
 #define MyAppExeName "juyuwanggeiwo.exe"
 #define MyAppMsixHelper "juyuwanggeiwo_msix_helper.msix"

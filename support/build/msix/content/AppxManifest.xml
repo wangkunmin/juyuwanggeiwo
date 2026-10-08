@@ -22,10 +22,10 @@
         xmlns:com3="http://schemas.microsoft.com/appx/manifest/com/windows10/3" 
         IgnorableNamespaces="uap3 desktop">
   <Identity Name="ynzj.juyuwanggeiwo" Version="1.18.2.0"
-            Publisher="CN=Tien Do Nam, O=Tien Do Nam, L=Berlin, C=DE" ProcessorArchitecture="x64" />
+            Publisher="CN=ynzj" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>局域网给我 MSIX Helper</DisplayName>
-    <PublisherDisplayName>Tien Do Nam</PublisherDisplayName>
+    <PublisherDisplayName>ynzj</PublisherDisplayName>
     <Logo>Images\StoreLogo.png</Logo>
     <Description>An open source cross-platform alternative to AirDrop</Description>
     <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
