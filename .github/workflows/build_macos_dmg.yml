@@ -34,6 +34,10 @@ on:
 permissions:
   contents: read
 
+env:
+  GITEE_REPO: ynzj/juyuwanggeiwo
+  RELEASE_TAG: v1.18.2-resume.1
+
 jobs:
   macos-dmg:
     runs-on: ${{ inputs.runner || 'macos-26' }}
@@ -184,7 +188,7 @@ jobs:
           set -euo pipefail
           VERSION=$(sed -n 's/^version: \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' app/pubspec.yaml)
           APP="app/build/macos/Build/Products/Release/juyuwanggeiwo.app"
-          DMG="juyuwanggeiwo-${VERSION}-unsigned.dmg"
+          DMG="juyuwanggeiwo-${VERSION}-macos-universal.dmg"
           test -d "$APP"
           rm -f "$DMG"
           hdiutil create -volname "局域网给我" -srcfolder "$APP" -ov -format UDZO "$DMG"
@@ -197,3 +201,9 @@ jobs:
             *.dmg
             *.dmg.sha256
           if-no-files-found: error
+
+      - name: 发布到 Gitee Release
+        if: ${{ env.GITEE_TOKEN != '' }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: bash support/scripts/publish_gitee_release.sh *.dmg *.sha256
