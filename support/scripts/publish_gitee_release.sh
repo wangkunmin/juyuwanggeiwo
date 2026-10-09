@@ -50,7 +50,7 @@ for a in (d.get("assets") or []) if isinstance(d, dict) else []:
 
 RID="$(get_release_id)"
 if [ -z "$RID" ]; then
-  echo "找不到 Release（tag=$TAG），跳过发布"
+  echo "找不到 Release（tag=${TAG}），跳过发布"
   exit 0
 fi
 echo "目标 Release：$REPO tag=$TAG id=$RID"
@@ -68,9 +68,9 @@ for f in "$@"; do
     -X POST "$API/releases/$RID/attach_files" \
     -F "access_token=$GITEE_TOKEN" -F "file=@$f")"
   if [ "$code" = "201" ] || [ "$code" = "200" ]; then
-    echo "  ✓ 已上传 $name（HTTP $code，$(du -h "$f" | cut -f1)）"
+    echo "  ✓ 已上传 ${name}（HTTP ${code}，$(du -h "$f" | cut -f1)）"
   else
-    echo "  ✗ 上传失败 $name（HTTP $code）"
+    echo "  ✗ 上传失败 ${name}（HTTP ${code}）"
     head -c 300 /tmp/gitee_upload.json 2>/dev/null; echo
     failed=1
   fi
