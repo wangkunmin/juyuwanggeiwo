@@ -15,7 +15,10 @@ name: Build Windows packages (fork)
 on:
   # 只手动触发：避免打标签时三个平台一起跑、白烧额度（macOS 按 10× 计费）
   workflow_dispatch:
-
+  # 公开仓库下标准 runner 免费且不限量，因此允许打标签自动出全平台包
+  push:
+    tags:
+      - "v*"
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

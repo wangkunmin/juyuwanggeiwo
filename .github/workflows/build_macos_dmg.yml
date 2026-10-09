@@ -27,7 +27,10 @@ on:
         description: 运行器（默认 macos-26：含 macOS 26 SDK，依赖 connectivity_plus 需要）
         required: false
         default: macos-26
-
+  # 公开仓库下标准 runner 免费且不限量，因此允许打标签自动出全平台包
+  push:
+    tags:
+      - "v*"
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
