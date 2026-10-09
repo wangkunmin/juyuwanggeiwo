@@ -386,7 +386,7 @@ RUN set -eux; \
     fi; \
     # lld：Dart/Flutter 的 Linux 构建需要 ld.lld（只有 clang 不够）
     apt-get update && apt-get install -y --no-install-recommends \
-        clang lld cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+        clang lld llvm binutils cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
         libstdc++-12-dev libsecret-1-dev libjsoncpp-dev \
         # tray_manager 插件要求 ayatana-appindicator3-0.1 或 appindicator3-0.1
         libayatana-appindicator3-dev \

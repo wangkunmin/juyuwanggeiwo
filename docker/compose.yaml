@@ -308,7 +308,7 @@ services:
         CODEGEN=$(grep -oE "codegenVersion => '[0-9]+\.[0-9]+\.[0-9]+'" /src/packages/localsend_isolates/lib/rust/frb_generated.dart | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         LOCKED=$(awk '/^  flutter_rust_bridge:/{f=1} f && /^    version:/{gsub(/[^0-9.]/,""); print; exit}' /src/pubspec.lock)
         RESOLVED=$(grep -oE 'flutter_rust_bridge-[0-9]+\.[0-9]+\.[0-9]+' /src/.dart_tool/package_config.json | head -1 | sed 's/flutter_rust_bridge-//')
-        echo "FRB version check: codegen=$CODEGEN lock=$LOCKED resolved=$RESOLVED"
+        echo "FRB version check: codegen=$$CODEGEN lock=$$LOCKED resolved=$$RESOLVED"
         if [ "$$CODEGEN" != "$$LOCKED" ] || [ "$$LOCKED" != "$$RESOLVED" ]; then
           echo "ERROR: flutter_rust_bridge 版本不一致，应用会启动崩溃，已终止打包" >&2
           exit 1
@@ -351,16 +351,18 @@ services:
         need=()
         pkg-config --exists ayatana-appindicator3-0.1 || pkg-config --exists appindicator3-0.1 || need+=(libayatana-appindicator3-dev)
         ls /usr/lib/llvm-*/bin/ld.lld /usr/bin/ld.lld >/dev/null 2>&1 || need+=(lld)
-        if [ ${#need[@]} -gt 0 ]; then
-          echo "installing missing build deps: ${need[*]}"
-          apt-get update -qq && apt-get install -y -qq --no-install-recommends "${need[@]}"
+        ls /usr/lib/llvm-*/bin/llvm-ar >/dev/null 2>&1 || need+=(llvm)
+        command -v ar >/dev/null 2>&1 || need+=(binutils)
+        if [ $${#need[@]} -gt 0 ]; then
+          echo "installing missing build deps: $${need[*]}"
+          apt-get update -qq && apt-get install -y -qq --no-install-recommends "$${need[@]}"
         fi
         cd /src
         flutter --no-version-check pub get --enforce-lockfile
         CODEGEN=$(grep -oE "codegenVersion => '[0-9]+\.[0-9]+\.[0-9]+'" /src/packages/localsend_isolates/lib/rust/frb_generated.dart | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         LOCKED=$(awk '/^  flutter_rust_bridge:/{f=1} f && /^    version:/{gsub(/[^0-9.]/,""); print; exit}' /src/pubspec.lock)
         RESOLVED=$(grep -oE 'flutter_rust_bridge-[0-9]+\.[0-9]+\.[0-9]+' /src/.dart_tool/package_config.json | head -1 | sed 's/flutter_rust_bridge-//')
-        echo "FRB version check: codegen=$CODEGEN lock=$LOCKED resolved=$RESOLVED"
+        echo "FRB version check: codegen=$$CODEGEN lock=$$LOCKED resolved=$$RESOLVED"
         if [ "$$CODEGEN" != "$$LOCKED" ] || [ "$$LOCKED" != "$$RESOLVED" ]; then
           echo "ERROR: flutter_rust_bridge 版本不一致，已终止构建" >&2
           exit 1
