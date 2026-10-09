@@ -128,8 +128,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     FLUTTER_SUPPRESS_ANALYTICS=true \
     PUB_CACHE=/root/.pub-cache \
     FLUTTER_STORAGE_BASE_URL=${FLUTTER_STORAGE_BASE_URL} \
-    PUB_HOSTED_URL=${PUB_HOSTED_URL} \
     PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
+# 注意：**不要**在这里设 PUB_HOSTED_URL。它若与 pubspec.lock 里的 url 不一致，pub 会
+# 视为不同来源而重新解析，把依赖整体升级（曾把 flutter_rust_bridge 从 2.12.0 升到
+# 2.13.0，与冻结的生成代码不匹配 → 应用启动即崩）。需要镜像时请配合 --enforce-lockfile。
 
 ARG DEBIAN_MIRROR
 RUN set -eux; \

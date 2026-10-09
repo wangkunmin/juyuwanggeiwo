@@ -129,11 +129,11 @@ services:
       - |
         set -e
         cd app
-        flutter pub get
+        flutter --no-version-check pub get --enforce-lockfile
         flutter analyze
         flutter test
         cd ../packages/localsend_isolates
-        flutter pub get
+        flutter --no-version-check pub get --enforce-lockfile
         # 只分析自有代码：rust_builder/cargokit 是随包附带的构建工具，
         # 不参与 pub 工作区解析（AGENTS.md），其中 45 个 uri_does_not_exist 为既有噪声
         flutter analyze lib test
@@ -192,11 +192,11 @@ services:
       - |
         set -e
         cd app
-        flutter pub get
+        flutter --no-version-check pub get --enforce-lockfile
         dart run build_runner build --delete-conflicting-outputs
         dart run slang
         cd ../packages/localsend_isolates
-        flutter pub get
+        flutter --no-version-check pub get --enforce-lockfile
         dart run build_runner build --delete-conflicting-outputs
 
   # ---------- 发布前：版本一致性检查（pubspec/inno/cli/msix/appimage） ----------
@@ -301,7 +301,7 @@ services:
         fi
         # --no-version-check：跳过联网更新检查（否则 flutter 会 git fetch --tags 卡住）
         # APK_BUILD_ARGS 可传附加参数，例如 --target-platform android-arm64 / --split-per-abi
-        flutter --no-version-check pub get
+        flutter --no-version-check pub get --enforce-lockfile
         flutter --no-version-check build apk --release ${APK_BUILD_ARGS:-}
 
   # ---------- Linux 桌面打包 ----------
