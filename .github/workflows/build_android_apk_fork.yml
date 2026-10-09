@@ -29,6 +29,9 @@ permissions:
 env:
   GITEE_REPO: ynzj/juyuwanggeiwo
   RELEASE_TAG: v1.18.2-resume.1
+  # 与已发布包一致的 versionCode 基数（645 → arm64 6453 / v7a 6451 / x86 6454），
+  # 保证 CI 产物与发布包同 versionCode 且同签名，可直接覆盖安装。
+  APK_BUILD_NUMBER: "645"
 
 jobs:
   apk:
@@ -137,7 +140,22 @@ jobs:
 
       - name: 打包（三个 ABI 分包）
         working-directory: app
-        run: flutter --no-version-check build apk --release --split-per-abi
+        run: flutter --no-version-check build apk --release --split-per-abi --build-number "$APK_BUILD_NUMBER"
+
+      - name: 统一产物命名（与已发布包一致，便于两处 Release 覆盖更新）
+        run: |
+          set -euo pipefail
+          VER="$(sed -n 's/^version: \([0-9.]*\).*/\1/p' app/pubspec.yaml)"
+          cd app/build/app/outputs/flutter-apk
+          # 与 versionCode 对应：arm64 6453 / v7a 6451 / x86 6454
+          for pair in "arm64-v8a:6453" "armeabi-v7a:6451" "x86_64:6454"; do
+            abi="${pair%%:*}"; code="${pair##*:}"
+            if [ -f "app-$abi-release.apk" ]; then
+              mv "app-$abi-release.apk" "juyuwanggeiwo-$VER-$code-$abi.apk"
+              echo "  app-$abi-release.apk → juyuwanggeiwo-$VER-$code-$abi.apk"
+            fi
+          done
+          ls -lh *.apk
 
       - name: 校验产物并输出校验和
         run: |
