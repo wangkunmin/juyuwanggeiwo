@@ -53,7 +53,17 @@
 
 ## 获取与安装
 
-目前尚未发布安装包，请从源码构建（见下）。上游 LocalSend 的安装包见[其发布页](https://github.com/localsend/localsend/releases)。
+**Android**：从本仓库的 [Releases](https://gitee.com/ynzj/juyuwanggeiwo/releases) 下载安装包。
+
+| 文件 | 适用设备 |
+|---|---|
+| `juyuwanggeiwo-<版本>-arm64-v8a.apk` | 现代安卓手机（推荐） |
+| `juyuwanggeiwo-<版本>-armeabi-v7a.apk` | 早期 32 位设备 |
+| `juyuwanggeiwo-<版本>-x86_64.apk` | 安卓模拟器 / x86 平板 |
+
+包名为 `com.gitee.ynzj.juyuwanggeiwo`，可与官方 LocalSend **共存安装**；目前使用自签名证书，安装时需允许"未知来源"。
+
+**macOS / iOS / Windows / Linux**：暂无预编译包，需从源码构建（见下）；上游 LocalSend 的安装包见[其发布页](https://github.com/localsend/localsend/releases)。
 
 ## 从源码构建
 
