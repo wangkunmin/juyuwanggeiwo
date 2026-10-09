@@ -31,7 +31,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: 读取 .fvmrc 的 Flutter 版本
         shell: bash
