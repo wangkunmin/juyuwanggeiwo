@@ -1,0 +1,100 @@
+# 构建 Android APK（本仓库专用：**不需要任何密钥/secret**）
+#
+# 与上游的 build_android_apk.yml 的区别：
+#   - 上游依赖 ANDROID_KEY_PROPERTIES / ANDROID_KEY_STORE 两个 secrets 做发布签名；
+#     本工作流在 CI 内生成一次性自签证书，因此无需配置任何 secret 即可出包。
+#   - 额外的安全网：强制使用锁定依赖（--enforce-lockfile），并断言
+#     flutter_rust_bridge 的「生成代码版本 / 锁文件版本 / 实际解析版本」三者一致。
+#     三者不一致会让 App 启动即崩（曾出过 codegen 2.12.0 与 runtime 2.13.0 的错配）。
+#
+# 触发：手动 Run workflow，或推送 v* 标签。
+# 产物：Actions 运行页面底部的 Artifacts → android-apk（三个 ABI 的 release 包）。
+#
+# 说明：Linux runner 是原生 x86_64，不需要模拟，通常 6–10 分钟完成；公开仓库免费、
+#       私有仓库消耗 Linux 分钟（1×），本工作流一次约 8–10 分钟。
+
+name: Build Android APK (fork, no secrets)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 读取 .fvmrc 的 Flutter 版本
+        id: versions
+        run: |
+          set -euo pipefail
+          V=$(sed -n 's/.*"flutter": *"\([^"]*\)".*/\1/p' .fvmrc | head -1)
+          echo "flutter=$V" >> "$GITHUB_OUTPUT"
+          echo "Flutter $V"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.versions.outputs.flutter }}
+          channel: stable
+          cache: true
+
+      # cargokit 在 Gradle 构建期间用 cargo 编译 Rust 插件
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+
+      - name: 环境信息
+        run: |
+          flutter --version
+          rustc --version
+          echo "ANDROID_HOME=$ANDROID_HOME"; ls "$ANDROID_HOME" 2>/dev/null | head -5
+
+      - name: 解析依赖（强制锁文件）
+        run: flutter --no-version-check pub get --enforce-lockfile
+
+      - name: 断言 flutter_rust_bridge 三方版本一致
+        run: |
+          set -euo pipefail
+          CODEGEN=$(grep -oE "codegenVersion => '[0-9]+\.[0-9]+\.[0-9]+'" packages/localsend_isolates/lib/rust/frb_generated.dart | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          LOCKED=$(awk '/^  flutter_rust_bridge:/{f=1} f && /^    version:/{gsub(/[^0-9.]/,""); print; exit}' pubspec.lock)
+          RESOLVED=$(grep -oE 'flutter_rust_bridge-[0-9]+\.[0-9]+\.[0-9]+' .dart_tool/package_config.json | head -1 | sed 's/flutter_rust_bridge-//')
+          echo "codegen=$CODEGEN lock=$LOCKED resolved=$RESOLVED"
+          if [ "$CODEGEN" != "$LOCKED" ] || [ "$LOCKED" != "$RESOLVED" ]; then
+            echo "::error::flutter_rust_bridge 版本不一致，产物会启动崩溃"
+            exit 1
+          fi
+
+      - name: 生成一次性自签证书（无需 secret）
+        working-directory: app
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-release.jks" \
+            -storepass cipass -keypass cipass -alias ci \
+            -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=CI Build" >/dev/null 2>&1
+          printf 'storePassword=cipass\nkeyPassword=cipass\nkeyAlias=ci\nstoreFile=%s\n' \
+            "$RUNNER_TEMP/ci-release.jks" > android/key.properties
+
+      - name: 打包（三个 ABI 分包）
+        working-directory: app
+        run: flutter --no-version-check build apk --release --split-per-abi
+
+      - name: 校验产物并输出校验和
+        run: |
+          set -euo pipefail
+          ls -lh app/build/app/outputs/flutter-apk/*.apk
+          shasum -a 256 app/build/app/outputs/flutter-apk/*.apk | tee SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: |
+            app/build/app/outputs/flutter-apk/*.apk
+            SHA256SUMS.txt
+          if-no-files-found: error
