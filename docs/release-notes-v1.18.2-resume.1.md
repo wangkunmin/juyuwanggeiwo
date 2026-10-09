@@ -9,9 +9,9 @@
 | Android | `juyuwanggeiwo-1.18.2-6453-x86_64.apk` | 安卓模拟器 / x86 平板 |
 | **macOS** | `juyuwanggeiwo-1.18.2-macos-universal.dmg` | 通用二进制（Apple Silicon + Intel），macOS 11+ |
 | **Linux** | `juyuwanggeiwo-1.18.2-linux-x86_64.tar.gz` | 解压后运行 `juyuwanggeiwo`（需 GTK3） |
-| **Windows** | `juyuwanggeiwo-1.18.2-windows-x64.zip` / `-setup.exe` | 绿色版 / Inno 安装包（构建中，稍后附上） |
+| **Windows** | `juyuwanggeiwo-1.18.2-windows-x64.zip` | 绿色版（解压即用；Inno 安装包为可选产物，未随本次附上） |
 
-校验和见附件 `SHA256SUMS.txt`。安装包均为**自签名/未签名**（无 Apple 开发者账号、无 Windows 代码签名证书），首次打开可能被系统拦截，属正常现象：
+校验和见附件 `SHA256SUMS-macos.txt` / `SHA256SUMS-windows.txt` / `SHA256SUMS-linux.txt`；Android 三个包的哈希见 Release 说明下方或 `SHA256SUMS-*.txt`。安装包均为**自签名/未签名**（无 Apple 开发者账号、无 Windows 代码签名证书），首次打开可能被系统拦截，属正常现象：
 - **macOS**：右键 App → 打开；或 `xattr -dr com.apple.quarantine /Applications/juyuwanggeiwo.app`
 - **Windows**：SmartScreen 提示时点"更多信息 → 仍要运行"
 - **Android**：允许"未知来源"安装
