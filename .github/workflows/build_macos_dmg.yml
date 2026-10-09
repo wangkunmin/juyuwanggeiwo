@@ -24,9 +24,9 @@ on:
         required: false
         default: ""
       runner:
-        description: 运行器（默认 macos-26-arm64：原生 arm64，比 Intel 快；SDK 需 macOS 26）
+        description: 运行器（默认 macos-26；实测 macos-26-arm64 排队常超 20 分钟，反而更慢）
         required: false
-        default: macos-26-arm64
+        default: macos-26
   # 公开仓库下标准 runner 免费且不限量，因此允许打标签自动出全平台包
   push:
     tags:
@@ -43,7 +43,7 @@ env:
 
 jobs:
   macos-dmg:
-    runs-on: ${{ inputs.runner || 'macos-26-arm64' }}
+    runs-on: ${{ inputs.runner || 'macos-26' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +71,9 @@ jobs:
         with:
           toolchain: "1.97.1"
 
+      # 注：实测 macos-26-arm64 因容量紧张常排队 20 分钟以上，总耗时反而更长，
+      # 因此默认仍用 macos-26（Intel，排队约 0.2 分钟）。可用 workflow_dispatch 的
+      # runner 输入临时切换。
       - name: 环境信息（并选中镜像内最新 Xcode）
         run: |
           set -euo pipefail
