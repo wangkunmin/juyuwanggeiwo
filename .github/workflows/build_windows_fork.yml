@@ -75,6 +75,19 @@ jobs:
             echo "::error::flutter_rust_bridge 版本不一致，产物会启动崩溃"; exit 1
           fi
 
+      # app/windows/CMakeLists.txt 的 install 步骤要求存在 juyuwanggeiwo_msix_helper.msix，
+      # 但仓库里只有素材（support/build/msix/），必须先用 Windows SDK 的 makepri/makeappx 生成。
+      # 首次构建失败即为此：INSTALL 的 PostBuildEvent 因缺文件报 MSB3073，且 MSBuild 不显示真实原因。
+      - name: 生成 MSIX helper
+        shell: pwsh
+        run: |
+          $makepri = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64\makepri.exe' | Select-Object -Last 1
+          if (-not $makepri) { throw "未找到 makepri.exe" }
+          & $makepri.FullName new /pr support\build\msix\content /cf support\build\msix\priconfig.xml /mn support\build\msix\content\AppxManifest.xml /of support\build\msix\content\resources.pri /o
+          & 'C:\Program Files (x86)\Windows Kits\10\App Certification Kit\makeappx.exe' pack /o /d support\build\msix\content /nv /p app\windows\juyuwanggeiwo_msix_helper.msix
+          if (-not (Test-Path 'app\windows\juyuwanggeiwo_msix_helper.msix')) { throw "MSIX helper 生成失败" }
+          Get-Item 'app\windows\juyuwanggeiwo_msix_helper.msix' | Select-Object Name, Length
+
       - name: 构建 Windows 应用
         shell: bash
         working-directory: app
