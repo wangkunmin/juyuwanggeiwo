@@ -32,20 +32,22 @@ except Exception:
     print("")'
 }
 
-get_asset_id() {
-  # $1 = 附件名
+get_asset_ids() {
+  # 返回该 Release 下所有同名附件的 id（Gitee 的 release JSON 不含 id，
+  # 必须走专门的 attach_files 列表接口；同名附件可能有多份，全部返回）
   local want="$1"
-  curl -s --max-time 30 "$API/releases/$RID" \
-    | WANT="$want" python3 -c 'import json,sys,os
+  curl -s --max-time 30 "$API/releases/$RID/attach_files?access_token=$GITEE_TOKEN" \
+    | WANT="$want" python3 -c 'import json,os,sys
 want = os.environ["WANT"]
 try:
-    d = json.load(sys.stdin)
+    items = json.load(sys.stdin)
 except Exception:
     sys.exit(0)
-for a in (d.get("assets") or []) if isinstance(d, dict) else []:
+if not isinstance(items, list):
+    sys.exit(0)
+for a in items:
     if a.get("name") == want:
-        print(a.get("id", ""))
-        break'
+        print(a.get("id", ""))'
 }
 
 RID="$(get_release_id)"
@@ -59,11 +61,12 @@ failed=0
 for f in "$@"; do
   [ -e "$f" ] || continue
   name="$(basename "$f")"
-  old="$(get_asset_id "$name")"
-  if [ -n "$old" ]; then
-    curl -s --max-time 60 -X DELETE "$API/releases/$RID/attach_files/$old?access_token=$GITEE_TOKEN" >/dev/null
-    echo "  已删除同名旧附件：$name"
-  fi
+  while read -r old; do
+    [ -n "$old" ] || continue
+    code_del="$(curl -s --max-time 60 -o /dev/null -w '%{http_code}' \
+      -X DELETE "$API/releases/$RID/attach_files/$old?access_token=$GITEE_TOKEN")"
+    echo "  删除同名旧附件 ${name}（id=$old）-> HTTP ${code_del}"
+  done <<< "$(get_asset_ids "$name")"
   code="$(curl -s --max-time 900 -o /tmp/gitee_upload.json -w '%{http_code}' \
     -X POST "$API/releases/$RID/attach_files" \
     -F "access_token=$GITEE_TOKEN" -F "file=@$f")"
