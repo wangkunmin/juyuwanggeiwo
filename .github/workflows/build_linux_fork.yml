@@ -109,11 +109,11 @@ jobs:
           VER="${{ steps.versions.outputs.appver }}"
           SRC="app/build/linux/x64/release/bundle"
           test -d "$SRC" || { echo "::error::找不到 $SRC"; exit 1; }
-          OUT="juyuwanggeiwo-$VER-linux-x64"
+          OUT="juyuwanggeiwo-$VER-linux-x86_64"
           rm -rf "$OUT" && mkdir -p "$OUT"
           cp -r "$SRC"/* "$OUT"/
           tar czf "$OUT.tar.gz" "$OUT"
-          shasum -a 256 "$OUT.tar.gz" | tee SHA256SUMS.txt
+          shasum -a 256 "$OUT.tar.gz" | tee SHA256SUMS-linux.txt
           ls -lh "$OUT.tar.gz"
 
       - name: 尝试打 AppImage（尽力而为）
@@ -145,7 +145,7 @@ jobs:
           # 只上传真实存在的文件：像 *.AppImage / *.exe 这类可选产物缺失时，
           # 直接把它们写进 gh 参数会让整个发布步骤失败（Linux 首次即栽在这里）。
           files=""
-          for f in *.tar.gz *.AppImage SHA256SUMS.txt; do [ -e "$f" ] && files="$files $f"; done
+          for f in *.tar.gz *.AppImage SHA256SUMS-linux.txt; do [ -e "$f" ] && files="$files $f"; done
           [ -n "$files" ] || { echo "没有可发布的文件"; exit 1; }
           gh release upload "$TAG" $files --clobber
           echo "已发布到 GitHub Release：$TAG"

@@ -123,7 +123,7 @@ jobs:
           $zip = "juyuwanggeiwo-$ver-windows-x64.zip"
           Compress-Archive -Path "$src\*" -DestinationPath $zip -Force
           $h = (Get-FileHash $zip -Algorithm SHA256).Hash
-          "$h  $zip" | Out-File -FilePath SHA256SUMS.txt -Encoding utf8 -Append
+          "$h  $zip" | Out-File -FilePath SHA256SUMS-windows.txt -Encoding utf8 -Append
 
       - name: 生成 Inno Setup 安装包（尽力而为）
         continue-on-error: true
@@ -139,7 +139,7 @@ jobs:
             $dst = "juyuwanggeiwo-$ver-windows-x64-setup.exe"
             Move-Item $_.FullName $dst -Force
             $h = (Get-FileHash $dst -Algorithm SHA256).Hash
-            "$h  $dst" | Out-File -FilePath SHA256SUMS.txt -Encoding utf8 -Append
+            "$h  $dst" | Out-File -FilePath SHA256SUMS-windows.txt -Encoding utf8 -Append
           }
 
       - name: 结果清单
@@ -169,7 +169,7 @@ jobs:
           # 只上传真实存在的文件：像 *.AppImage / *.exe 这类可选产物缺失时，
           # 直接把它们写进 gh 参数会让整个发布步骤失败（Linux 首次即栽在这里）。
           files=""
-          for f in *.zip *.exe SHA256SUMS.txt; do [ -e "$f" ] && files="$files $f"; done
+          for f in *.zip *.exe SHA256SUMS-windows.txt; do [ -e "$f" ] && files="$files $f"; done
           [ -n "$files" ] || { echo "没有可发布的文件"; exit 1; }
           gh release upload "$TAG" $files --clobber
           echo "已发布到 GitHub Release：$TAG"
