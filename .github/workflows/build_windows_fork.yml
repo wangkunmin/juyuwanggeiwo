@@ -78,7 +78,9 @@ jobs:
       - name: 构建 Windows 应用
         shell: bash
         working-directory: app
-        run: flutter --no-version-check build windows --release
+        # -v：MSBuild 会把 cargokit(cargo) 的失败包装成 MSB3073 而看不到真实原因，
+        # 加 verbose 才能定位（首次失败即为此）。
+        run: flutter --no-version-check build windows --release -v
 
       - name: 打包绿色版 zip
         shell: pwsh
