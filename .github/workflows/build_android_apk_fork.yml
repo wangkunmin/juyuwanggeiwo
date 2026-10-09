@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 标准 ubuntu runner 可用空间只有约 14GB，而 Android 构建要装 NDK + 为三个 ABI
       # 交叉编译 Rust + Gradle 缓存，实测会写满磁盘（第二次失败即 No space left on device，
