@@ -12,10 +12,12 @@
 name: Build Linux packages (fork)
 
 on:
+  # 只手动触发：避免打标签时三个平台一起跑、白烧额度（macOS 按 10× 计费）
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -26,7 +28,7 @@ env:
 jobs:
   linux:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -64,6 +66,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.97.1"
+
+      # 缓存 Rust 依赖编译结果（cargokit 的产物）与 cargo 注册表：
+      # macOS/Windows 一次全量编译 Rust 依赖就要 8–12 分钟，这是最贵的部分。
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/build/macos/**/cargokit_build
+            app/build/windows/**/cargokit_build
+            app/build/linux/**/cargokit_build
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ runner.arch }}-
+            cargo-${{ runner.os }}-
 
       - name: 解析依赖（强制锁文件）
         run: flutter --no-version-check pub get --enforce-lockfile
