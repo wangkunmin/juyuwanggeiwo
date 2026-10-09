@@ -122,7 +122,7 @@ jobs:
           bash support/scripts/compile_linux_appimage.sh || echo "AppImage 脚本未成功，忽略（tar.gz 已可用）"
           ls -lh *.AppImage 2>/dev/null || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux-packages
           path: |

@@ -145,7 +145,7 @@ jobs:
           ls -lh app/build/app/outputs/flutter-apk/*.apk
           shasum -a 256 app/build/app/outputs/flutter-apk/*.apk | sed 's|app/build/app/outputs/flutter-apk/||' | tee SHA256SUMS-android.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: android-apk
           path: |
