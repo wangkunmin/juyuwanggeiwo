@@ -45,6 +45,12 @@ jobs:
           channel: stable
           cache: true
 
+      # Android Gradle Plugin 需要 JDK 17；runner 默认是 JDK 11（首次实测就栽在这里）
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       # cargokit 在 Gradle 构建期间用 cargo 编译 Rust 插件
       - uses: dtolnay/rust-toolchain@master
         with:
