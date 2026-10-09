@@ -173,3 +173,12 @@ jobs:
           [ -n "$files" ] || { echo "没有可发布的文件"; exit 1; }
           gh release upload "$TAG" $files --clobber
           echo "已发布到 GitHub Release：$TAG"
+      - name: 发布到 Gitee Release（失败不影响 GitHub 发布）
+        continue-on-error: true
+        if: ${{ env.GITEE_TOKEN != '' }}
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: ynzj/juyuwanggeiwo
+          RELEASE_TAG: v1.18.2-resume.1
+        run: bash support/scripts/publish_gitee_release.sh *.zip *.exe SHA256SUMS-windows.txt

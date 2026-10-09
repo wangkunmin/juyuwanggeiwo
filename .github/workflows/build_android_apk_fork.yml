@@ -8,7 +8,9 @@
 #     三者不一致会让 App 启动即崩（曾出过 codegen 2.12.0 与 runtime 2.13.0 的错配）。
 #
 # 触发：手动 Run workflow，或推送 v* 标签。
-# 产物：Actions 运行页面底部的 Artifacts → android-apk（三个 ABI 的 release 包）。
+# 产物：三个 ABI 的 release APK，同时发布到 GitHub Release 与 Gitee Release（后者需
+#       GITEE_TOKEN 密钥）。若配置了 ANDROID_KEYSTORE_BASE64 等密钥，会复用正式证书，
+#       保证与已发布包同签名（可直接覆盖安装）。
 #
 # 说明：Linux runner 是原生 x86_64，不需要模拟，通常 6–10 分钟完成；公开仓库免费、
 #       私有仓库消耗 Linux 分钟（1×），本工作流一次约 8–10 分钟。
@@ -22,7 +24,11 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  GITEE_REPO: ynzj/juyuwanggeiwo
+  RELEASE_TAG: v1.18.2-resume.1
 
 jobs:
   apk:
@@ -79,6 +85,18 @@ jobs:
           rustc --version
           echo "ANDROID_HOME=$ANDROID_HOME"; ls "$ANDROID_HOME" 2>/dev/null | head -5
 
+      # 缓存 Rust 依赖编译结果与 cargo 注册表（三个 ABI 全量编译最耗时）
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/build/**/cargokit_build
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ runner.arch }}-
+            cargo-${{ runner.os }}-
+
       - name: 解析依赖（强制锁文件）
         run: flutter --no-version-check pub get --enforce-lockfile
 
@@ -94,15 +112,28 @@ jobs:
             exit 1
           fi
 
-      - name: 生成一次性自签证书（无需 secret）
+      - name: 准备签名（复用已发布包所用证书，保证同签名）
         working-directory: app
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-release.jks" \
-            -storepass cipass -keypass cipass -alias ci \
-            -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=CI Build" >/dev/null 2>&1
-          printf 'storePassword=cipass\nkeyPassword=cipass\nkeyAlias=ci\nstoreFile=%s\n' \
-            "$RUNNER_TEMP/ci-release.jks" > android/key.properties
+          if [ -n "${KS_B64:-}" ]; then
+            printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=%s\n' \
+              "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+              "${{ secrets.ANDROID_KEY_PASSWORD }}" \
+              "${{ secrets.ANDROID_KEY_ALIAS }}" \
+              "$RUNNER_TEMP/release.jks" > android/key.properties
+            echo "已复用正式 keystore（与 Gitee 上已发布的包同签名，可覆盖安装）"
+          else
+            echo "未配置 keystore 密钥，退回一次性自签证书（与已发布包签名不同！）"
+            keytool -genkeypair -keystore "$RUNNER_TEMP/ci.jks" \
+              -storepass cipass -keypass cipass -alias ci \
+              -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=CI Build" >/dev/null 2>&1
+            printf 'storePassword=cipass\nkeyPassword=cipass\nkeyAlias=ci\nstoreFile=%s\n' \
+              "$RUNNER_TEMP/ci.jks" > android/key.properties
+          fi
 
       - name: 打包（三个 ABI 分包）
         working-directory: app
@@ -112,12 +143,36 @@ jobs:
         run: |
           set -euo pipefail
           ls -lh app/build/app/outputs/flutter-apk/*.apk
-          shasum -a 256 app/build/app/outputs/flutter-apk/*.apk | tee SHA256SUMS.txt
+          shasum -a 256 app/build/app/outputs/flutter-apk/*.apk | sed 's|app/build/app/outputs/flutter-apk/||' | tee SHA256SUMS-android.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: |
             app/build/app/outputs/flutter-apk/*.apk
-            SHA256SUMS.txt
+            SHA256SUMS-android.txt
           if-no-files-found: error
+
+      - name: 发布到 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="$RELEASE_TAG"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "局域网给我 $TAG" --notes-file docs/release-notes-v1.18.2-resume.1.md
+          fi
+          files=""
+          for f in app/build/app/outputs/flutter-apk/*.apk SHA256SUMS-android.txt; do
+            [ -e "$f" ] && files="$files $f"
+          done
+          [ -n "$files" ] || { echo "没有可发布的文件"; exit 1; }
+          gh release upload "$TAG" $files --clobber
+
+      - name: 发布到 Gitee Release（失败不影响 GitHub 发布）
+        continue-on-error: true
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          bash support/scripts/publish_gitee_release.sh app/build/app/outputs/flutter-apk/*.apk SHA256SUMS-android.txt
