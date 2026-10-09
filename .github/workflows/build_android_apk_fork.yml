@@ -89,7 +89,7 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"; ls "$ANDROID_HOME" 2>/dev/null | head -5
 
       # 缓存 Rust 依赖编译结果与 cargo 注册表（三个 ABI 全量编译最耗时）
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry

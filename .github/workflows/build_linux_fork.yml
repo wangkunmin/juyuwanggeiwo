@@ -72,7 +72,7 @@ jobs:
 
       # 缓存 Rust 依赖编译结果（cargokit 的产物）与 cargo 注册表：
       # macOS/Windows 一次全量编译 Rust 依赖就要 8–12 分钟，这是最贵的部分。
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
