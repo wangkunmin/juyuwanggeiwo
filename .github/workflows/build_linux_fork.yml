@@ -113,7 +113,7 @@ jobs:
 
       - name: 发布到 GitHub Release
         env:
-          GH_TOKEN: ${ secrets.GITHUB_TOKEN }
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="$RELEASE_TAG"
