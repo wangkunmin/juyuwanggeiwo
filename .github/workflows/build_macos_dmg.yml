@@ -27,9 +27,6 @@ on:
         description: 运行器（默认 macos-26：含 macOS 26 SDK，依赖 connectivity_plus 需要）
         required: false
         default: macos-26
-  push:
-    tags:
-      - "v*"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
