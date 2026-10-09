@@ -19,10 +19,9 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 env:
-  GITEE_REPO: ynzj/juyuwanggeiwo
   RELEASE_TAG: v1.18.2-resume.1
 
 jobs:
@@ -136,8 +135,15 @@ jobs:
             SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: 发布到 Gitee Release
-        if: ${{ env.GITEE_TOKEN != '' }}
+      - name: 发布到 GitHub Release
         env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: bash support/scripts/publish_gitee_release.sh *.zip *.exe SHA256SUMS.txt
+          GH_TOKEN: ${ secrets.GITHUB_TOKEN }
+        run: |
+          set -euo pipefail
+          TAG="$RELEASE_TAG"
+          NOTES="docs/release-notes-v1.18.2-resume.1.md"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "局域网给我 $TAG" --notes-file "$NOTES"
+          fi
+          gh release upload "$TAG" *.zip *.exe SHA256SUMS.txt --clobber
+          echo "已发布到 GitHub Release：$TAG"
