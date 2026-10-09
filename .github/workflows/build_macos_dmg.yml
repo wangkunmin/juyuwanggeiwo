@@ -92,14 +92,36 @@ jobs:
           echo "codegen=$CODEGEN lock=$LOCKED resolved=$RESOLVED"
           [ "$CODEGEN" = "$LOCKED" ] && [ "$LOCKED" = "$RESOLVED" ]
 
-      - name: 构建 macOS App（不签名）
+      - name: 构建 macOS App（临时签名，无需 Apple ID）
         working-directory: app
         env:
-          # 不签名构建：无需 Apple ID / 开发者团队。正式发布时改为自己的证书与团队即可。
+          # 只把签名身份设为 "-"（本地临时签名，见工程内 CODE_SIGN_IDENTITY 设置），
+          # 千万不能设 CODE_SIGNING_ALLOWED=NO：那样主 App 会被临时签名、而子组件
+          # （LaunchAtLoginHelper.app / ShareExtension.appex）签名不一致，
+          # 结果整包校验失败、双击打不开：
+          #   "invalid Info.plist (plist or signature have been modified)"
+          #   In subcomponent: .../LoginItems/LaunchAtLoginHelper.app
           CODE_SIGN_IDENTITY: "-"
-          CODE_SIGNING_REQUIRED: "NO"
-          CODE_SIGNING_ALLOWED: "NO"
         run: flutter build macos --release
+
+      # 这次踩过的坑：能构建成功 ≠ 能打开。打包前强制校验整包签名（含子组件）。
+      - name: 校验 App 签名完整性
+        run: |
+          set -euo pipefail
+          APP="app/build/macos/Build/Products/Release/juyuwanggeiwo.app"
+          test -d "$APP"
+          echo "--- 逐个组件校验 ---"
+          fail=0
+          while IFS= read -r c; do
+            if codesign --verify --strict "$c" 2>/dev/null; then
+              echo "  OK   $(basename "$c")"
+            else
+              echo "  FAIL $(basename "$c")"; fail=1
+            fi
+          done < <(find "$APP" -maxdepth 4 \( -name "*.app" -o -name "*.appex" -o -name "*.framework" \) -print)
+          echo "--- 整包深度校验 ---"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          [ "$fail" = 0 ] || { echo "::error::存在签名校验失败的子组件，产物会在 macOS 上打不开"; exit 1; }
 
       - name: 打包 DMG
         run: |
