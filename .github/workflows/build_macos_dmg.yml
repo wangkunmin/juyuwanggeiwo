@@ -104,6 +104,42 @@ jobs:
           CODE_SIGN_IDENTITY: "-"
         run: flutter build macos --release
 
+      # 关键修复：LaunchAtLoginHelper.app（来自 launch_at_startup 的 pod）是**预编译**的，
+      # 自带其作者的签名；Xcode 的临时签名不会覆盖它，于是它的 Info.plist 与签名不匹配
+      # （codesign: Info.plist=not bound），连带整个 App 校验失败、双击打不开。
+      # 因此构建完成后自内向外统一重新做一次性临时签名。
+      - name: 统一重新临时签名（自内向外）
+        run: |
+          set -euo pipefail
+          APP="app/build/macos/Build/Products/Release/juyuwanggeiwo.app"
+          sign() { codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$1"; }
+
+          # 1) 内层 framework
+          find "$APP/Contents/Frameworks" -maxdepth 1 -name "*.framework" -print0 |             while IFS= read -r -d '' f; do echo "  重签 $(basename "$f")"; sign "$f"; done
+
+          # 2) 登录项 helper（本次问题的根源）
+          HELPER="$APP/Contents/Library/LoginItems/LaunchAtLoginHelper.app"
+          if [ -d "$HELPER" ]; then
+            echo "  重签 $(basename "$HELPER")（含内部可执行文件）"
+            for inner in $(find "$HELPER" -type f -perm -u+x -not -path "*/_CodeSignature/*" 2>/dev/null); do
+              case "$inner" in *.dylib|*/MacOS/*) sign "$inner" || true ;; esac
+            done
+            sign "$HELPER"
+          fi
+
+          # 3) 分享扩展
+          for ex in $(find "$APP/Contents/PlugIns" -maxdepth 1 -name "*.appex" 2>/dev/null); do
+            echo "  重签 $(basename "$ex")"
+            for inner in $(find "$ex" -type f -perm -u+x -not -path "*/_CodeSignature/*" 2>/dev/null); do
+              case "$inner" in *.dylib|*/MacOS/*) sign "$inner" || true ;; esac
+            done
+            sign "$ex"
+          done
+
+          # 4) 主 App 最后签
+          echo "  重签主 App"
+          sign "$APP"
+
       # 这次踩过的坑：能构建成功 ≠ 能打开。打包前强制校验整包签名（含子组件）。
       - name: 校验 App 签名完整性
         run: |
