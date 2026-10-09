@@ -1,0 +1,108 @@
+# 在 macOS runner 上构建「局域网给我」的 macOS 安装包（未签名）
+#
+# 为什么用 CI：Flutter 的 macOS 构建必须调用 xcodebuild，而 xcodebuild 只有完整
+# Xcode 才有；Xcode 只能通过 Apple ID 从 App Store / developer.apple.com 获取。
+# GitHub 的 macOS runner **自带 Xcode**，因此不需要任何 Apple ID 就能出包。
+#
+# 使用前提：
+#   1. 本仓库在 GitHub 上有一份镜像（GitHub Actions 只在 GitHub 上运行；
+#      Gitee 上无法使用 macOS runner）；
+#   2. 不需要 Apple 账号：本项目在 CI 里以「不签名」方式构建，产物仅用于本机测试。
+#      正式分发给他人需要自己的 Developer ID + 公证（届时设置下面的环境变量即可）。
+#
+# 产物：juyuwanggeiwo-<版本>-unsigned.dmg（含 .app，拖到"应用程序"即可运行）
+# 首次打开若被 Gatekeeper 拦截，执行：
+#   xattr -dr com.apple.quarantine /Applications/juyuwanggeiwo.app
+
+name: Build macOS DMG (unsigned)
+
+on:
+  workflow_dispatch:
+    inputs:
+      flutter_version:
+        description: Flutter 版本（留空则读 .fvmrc）
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  macos-dmg:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 读取 .fvmrc 里的 Flutter 版本
+        id: versions
+        run: |
+          set -euo pipefail
+          FLUTTER_VERSION="${{ inputs.flutter_version }}"
+          if [ -z "$FLUTTER_VERSION" ]; then
+            FLUTTER_VERSION=$(sed -n 's/.*"flutter": *"\([^"]*\)".*/\1/p' .fvmrc | head -1)
+          fi
+          echo "flutter=$FLUTTER_VERSION" >> "$GITHUB_OUTPUT"
+          echo "使用 Flutter $FLUTTER_VERSION"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.versions.outputs.flutter }}
+          channel: stable
+          cache: true
+
+      # Rust 工具链：cargokit 在 Xcode 构建期间用 cargo 交叉编译插件。
+      # 版本与仓库 rust-toolchain.toml 保持一致。
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+
+      - name: 环境信息
+        run: |
+          flutter --version
+          xcodebuild -version
+          rustc --version
+          (pod --version || sudo gem install cocoapods --no-document) 2>&1 | tail -2
+
+      - name: 解析依赖（强制锁文件，避免依赖被静默升级）
+        run: flutter pub get --enforce-lockfile
+
+      - name: 断言 flutter_rust_bridge 三方版本一致
+        run: |
+          set -euo pipefail
+          CODEGEN=$(grep -oE "codegenVersion => '[0-9]+\.[0-9]+\.[0-9]+'" packages/localsend_isolates/lib/rust/frb_generated.dart | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          LOCKED=$(awk '/^  flutter_rust_bridge:/{f=1} f && /^    version:/{gsub(/[^0-9.]/,""); print; exit}' pubspec.lock)
+          RESOLVED=$(grep -oE 'flutter_rust_bridge-[0-9]+\.[0-9]+\.[0-9]+' .dart_tool/package_config.json | head -1 | sed 's/flutter_rust_bridge-//')
+          echo "codegen=$CODEGEN lock=$LOCKED resolved=$RESOLVED"
+          [ "$CODEGEN" = "$LOCKED" ] && [ "$LOCKED" = "$RESOLVED" ]
+
+      - name: 构建 macOS App（不签名）
+        working-directory: app
+        env:
+          # 不签名构建：无需 Apple ID / 开发者团队。正式发布时改为自己的证书与团队即可。
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGNING_ALLOWED: "NO"
+        run: flutter build macos --release
+
+      - name: 打包 DMG
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version: \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' app/pubspec.yaml)
+          APP="app/build/macos/Build/Products/Release/juyuwanggeiwo.app"
+          DMG="juyuwanggeiwo-${VERSION}-unsigned.dmg"
+          test -d "$APP"
+          rm -f "$DMG"
+          hdiutil create -volname "局域网给我" -srcfolder "$APP" -ov -format UDZO "$DMG"
+          shasum -a 256 "$DMG" | tee "$DMG.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: |
+            *.dmg
+            *.dmg.sha256
+          if-no-files-found: error
