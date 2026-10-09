@@ -31,6 +31,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 标准 ubuntu runner 可用空间只有约 14GB，而 Android 构建要装 NDK + 为三个 ABI
+      # 交叉编译 Rust + Gradle 缓存，实测会写满磁盘（第二次失败即 No space left on device，
+      # 连运行日志都生成不出来）。这里先删掉 runner 上与本项目无关的预装组件。
+      - name: 释放磁盘空间
+        run: |
+          set -euo pipefail
+          echo "清理前："; df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet \
+                      /usr/local/lib/android/sdk/ndk \
+                      /usr/local/lib/android/sdk/system-images \
+                      /usr/local/lib/android/sdk/emulator \
+                      /opt/ghc /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/boost /usr/local/share/chromium \
+                      /opt/microsoft/msedge /usr/lib/firefox /usr/share/swift 2>/dev/null || true
+          sudo apt-get clean 2>/dev/null || true
+          echo "清理后："; df -h / | tail -1
+
       - name: 读取 .fvmrc 的 Flutter 版本
         id: versions
         run: |
@@ -55,23 +72,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.97.1"
-
-      # 标准 ubuntu runner 可用空间只有约 14GB，而 Android 构建要装 NDK + 为三个 ABI
-      # 交叉编译 Rust + Gradle 缓存，实测会写满磁盘（第二次失败即 No space left on device，
-      # 连运行日志都生成不出来）。这里先删掉 runner 上与本项目无关的预装组件。
-      - name: 释放磁盘空间
-        run: |
-          set -euo pipefail
-          echo "清理前："; df -h / | tail -1
-          sudo rm -rf /usr/share/dotnet \
-                      /usr/local/lib/android/sdk/ndk \
-                      /usr/local/lib/android/sdk/system-images \
-                      /usr/local/lib/android/sdk/emulator \
-                      /opt/ghc /opt/hostedtoolcache/CodeQL \
-                      /usr/local/share/boost /usr/local/share/chromium \
-                      /opt/microsoft/msedge /usr/lib/firefox /usr/share/swift 2>/dev/null || true
-          sudo apt-get clean 2>/dev/null || true
-          echo "清理后："; df -h / | tail -1
 
       - name: 环境信息
         run: |

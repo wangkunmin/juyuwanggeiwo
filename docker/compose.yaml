@@ -347,6 +347,14 @@ services:
       - -c
       - |
         set -e
+        # tray_manager 需要 appindicator；镜像若未预装则就地安装（省去重建镜像）
+        need=()
+        pkg-config --exists ayatana-appindicator3-0.1 || pkg-config --exists appindicator3-0.1 || need+=(libayatana-appindicator3-dev)
+        ls /usr/lib/llvm-*/bin/ld.lld /usr/bin/ld.lld >/dev/null 2>&1 || need+=(lld)
+        if [ ${#need[@]} -gt 0 ]; then
+          echo "installing missing build deps: ${need[*]}"
+          apt-get update -qq && apt-get install -y -qq --no-install-recommends "${need[@]}"
+        fi
         cd /src
         flutter --no-version-check pub get --enforce-lockfile
         CODEGEN=$(grep -oE "codegenVersion => '[0-9]+\.[0-9]+\.[0-9]+'" /src/packages/localsend_isolates/lib/rust/frb_generated.dart | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)

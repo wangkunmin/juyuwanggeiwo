@@ -384,14 +384,17 @@ RUN set -eux; \
             sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g; s|security.debian.org|${DEBIAN_MIRROR}|g" "$f"; \
         done; \
     fi; \
+    # lld：Dart/Flutter 的 Linux 构建需要 ld.lld（只有 clang 不够）
     apt-get update && apt-get install -y --no-install-recommends \
-        clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+        clang lld cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
         libstdc++-12-dev libsecret-1-dev libjsoncpp-dev \
+        # tray_manager 插件要求 ayatana-appindicator3-0.1 或 appindicator3-0.1
+        libayatana-appindicator3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.pub-cache \
-    --mount=type=cache,target=/src/target \
-    cd app && flutter pub get && flutter build linux --release
+# 说明：本层只装 GTK 等构建依赖，Linux 应用由 `docker compose run --rm linux-app` 构建。
+# 曾经在这里直接 `flutter build linux`，但那样既与 run 步骤重复，又会在镜像构建期遇到
+# 网络抖动（实测 pub get 的 git 克隆 TLS 失败）导致整个镜像构建失败，且失败信息不友好。
 
 # =============================================================================
 # 5) 交互开发层：Rust + Flutter + Android SDK + FRB codegen 全在一台容器里
