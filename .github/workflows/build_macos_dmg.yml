@@ -104,41 +104,42 @@ jobs:
           CODE_SIGN_IDENTITY: "-"
         run: flutter build macos --release
 
-      # 关键修复：LaunchAtLoginHelper.app（来自 launch_at_startup 的 pod）是**预编译**的，
+      # 关键修复 ①：LaunchAtLoginHelper.app（来自 launch_at_startup 的 pod）是**预编译**的，
       # 自带其作者的签名；Xcode 的临时签名不会覆盖它，于是它的 Info.plist 与签名不匹配
       # （codesign: Info.plist=not bound），连带整个 App 校验失败、双击打不开。
-      # 因此构建完成后自内向外统一重新做一次性临时签名。
+      # 关键修复 ②：不能保留 hardened runtime（flags=runtime）。临时签名没有团队 ID，
+      # dyld 的 library validation 会拒绝加载框架：
+      #   Library not loaded: @rpath/Defaults.framework/... (different Team IDs)
+      # 实测：改为纯临时签名（flags=adhoc，无 runtime）后，App 能完整启动
+      # （Server started, port 53317）。
       - name: 统一重新临时签名（自内向外）
         run: |
           set -euo pipefail
           APP="app/build/macos/Build/Products/Release/juyuwanggeiwo.app"
-          sign() { codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$1"; }
+          sign() { codesign --force --sign - "$1"; }
 
-          # 1) 内层 framework
-          find "$APP/Contents/Frameworks" -maxdepth 1 -name "*.framework" -print0 |             while IFS= read -r -d '' f; do echo "  重签 $(basename "$f")"; sign "$f"; done
+          find "$APP/Contents/Frameworks" -maxdepth 1 -name "*.framework" -print0 | \
+            while IFS= read -r -d '' f; do sign "$f"; done
+          echo "  已重签 $(find "$APP/Contents/Frameworks" -maxdepth 1 -name '*.framework' | wc -l | tr -d ' ') 个 framework"
 
-          # 2) 登录项 helper（本次问题的根源）
           HELPER="$APP/Contents/Library/LoginItems/LaunchAtLoginHelper.app"
           if [ -d "$HELPER" ]; then
-            echo "  重签 $(basename "$HELPER")（含内部可执行文件）"
             for inner in $(find "$HELPER" -type f -perm -u+x -not -path "*/_CodeSignature/*" 2>/dev/null); do
               case "$inner" in *.dylib|*/MacOS/*) sign "$inner" || true ;; esac
             done
-            sign "$HELPER"
+            sign "$HELPER"; echo "  已重签 LaunchAtLoginHelper.app"
           fi
 
-          # 3) 分享扩展
-          for ex in $(find "$APP/Contents/PlugIns" -maxdepth 1 -name "*.appex" 2>/dev/null); do
-            echo "  重签 $(basename "$ex")"
+          for ex in "$APP/Contents/PlugIns/"*.appex; do
+            [ -e "$ex" ] || continue
             for inner in $(find "$ex" -type f -perm -u+x -not -path "*/_CodeSignature/*" 2>/dev/null); do
               case "$inner" in *.dylib|*/MacOS/*) sign "$inner" || true ;; esac
             done
-            sign "$ex"
+            sign "$ex"; echo "  已重签 $(basename "$ex")"
           done
 
-          # 4) 主 App 最后签
-          echo "  重签主 App"
-          sign "$APP"
+          sign "$APP"; echo "  已重签主 App"
+          codesign -dv "$APP" 2>&1 | grep -E "flags|Signature" || true
 
       # 这次踩过的坑：能构建成功 ≠ 能打开。打包前强制校验整包签名（含子组件）。
       - name: 校验 App 签名完整性
@@ -158,6 +159,25 @@ jobs:
           echo "--- 整包深度校验 ---"
           codesign --verify --deep --strict --verbose=2 "$APP"
           [ "$fail" = 0 ] || { echo "::error::存在签名校验失败的子组件，产物会在 macOS 上打不开"; exit 1; }
+
+      # 能构建、能过签名校验，仍可能在运行时 dyld 加载失败（本次真实踩到）。
+      # 这里直接跑一次二进制，只要出现 "Library not loaded" 就判定失败。
+      - name: 冒烟运行（拦截 dyld 加载失败）
+        run: |
+          set -uo pipefail
+          APP="app/build/macos/Build/Products/Release/juyuwanggeiwo.app"
+          BIN="$APP/Contents/MacOS/$(basename "$APP" .app)"
+          "$BIN" > /tmp/smoke.log 2>&1 &
+          pid=$!
+          sleep 10
+          kill "$pid" 2>/dev/null || true
+          if grep -q "Library not loaded" /tmp/smoke.log; then
+            echo "::error::dyld 加载失败，产物在用户机器上会闪退："
+            cat /tmp/smoke.log
+            exit 1
+          fi
+          echo "冒烟通过（未出现 dyld 加载错误）"
+          tail -5 /tmp/smoke.log || true
 
       - name: 打包 DMG
         run: |
