@@ -302,6 +302,18 @@ services:
         # --no-version-check：跳过联网更新检查（否则 flutter 会 git fetch --tags 卡住）
         # APK_BUILD_ARGS 可传附加参数，例如 --target-platform android-arm64 / --split-per-abi
         flutter --no-version-check pub get --enforce-lockfile
+
+        # 断言:flutter_rust_bridge 的"生成代码版本 / 锁定版本 / 实际解析版本"三者一致。
+        # 三者不一致会让应用启动即崩（codegen 2.12.0 vs runtime 2.13.0），必须在打包前拦住。
+        CODEGEN=$(grep -oE "codegenVersion => '[0-9]+\.[0-9]+\.[0-9]+'" /src/packages/localsend_isolates/lib/rust/frb_generated.dart | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        LOCKED=$(awk '/^  flutter_rust_bridge:/{f=1} f && /^    version:/{gsub(/[^0-9.]/,""); print; exit}' /src/pubspec.lock)
+        RESOLVED=$(grep -oE 'flutter_rust_bridge-[0-9]+\.[0-9]+\.[0-9]+' /src/.dart_tool/package_config.json | head -1 | sed 's/flutter_rust_bridge-//')
+        echo "FRB version check: codegen=$CODEGEN lock=$LOCKED resolved=$RESOLVED"
+        if [ "$$CODEGEN" != "$$LOCKED" ] || [ "$$LOCKED" != "$$RESOLVED" ]; then
+          echo "ERROR: flutter_rust_bridge 版本不一致，应用会启动崩溃，已终止打包" >&2
+          exit 1
+        fi
+
         flutter --no-version-check build apk --release ${APK_BUILD_ARGS:-}
 
   # ---------- Linux 桌面打包 ----------
