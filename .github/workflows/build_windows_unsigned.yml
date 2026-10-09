@@ -1,0 +1,116 @@
+# 在 Windows runner 上构建「局域网给我」的 Windows 安装包（未签名）
+#
+# 为什么用 CI：Flutter 的 Windows 桌面构建必须使用 MSVC + Windows SDK，只能在 Windows 上
+# 运行；Linux 容器与 macOS 都做不了。GitHub 的 windows-latest runner 自带 MSVC 与 Inno Setup，
+# 因此不需要本地 Windows 机器。
+#
+# 与上游同名工作流的差异（本仓库必需）：
+#   - MSIX helper 产物名改为 juyuwanggeiwo_msix_helper.msix（CMake 与 Inno 都用新名）
+#   - Inno 输出为 juyuwanggeiwo.exe（OutputBaseFilename 已改），产物统一加 juyuwanggeiwo- 前缀
+#   - 依赖解析使用 --enforce-lockfile，并断言 flutter_rust_bridge 三方版本一致
+#
+# 产物：
+#   juyuwanggeiwo-<版本>-windows-x64.exe     安装包（Inno Setup，未签名）
+#   juyuwanggeiwo-<版本>-windows-x64.zip     免安装绿色版
+
+name: Build Windows (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: 允许长路径
+        run: git config --system core.longpaths true
+
+      - uses: actions/checkout@v4
+
+      - name: 读取 .fvmrc 里的 Flutter 版本
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "flutter=$(sed -n 's/.*"flutter": *"\([^"]*\)".*/\1/p' .fvmrc | head -1)" >> "$GITHUB_OUTPUT"
+          echo "app=$(sed -n 's/^version: \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' app/pubspec.yaml)" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.versions.outputs.flutter }}
+          channel: stable
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+
+      - name: 环境信息
+        shell: bash
+        run: |
+          flutter --version
+          rustc --version
+
+      # app/windows/CMakeLists.txt 在 install 阶段需要这个文件（名字已改）
+      - name: 构建 MSIX helper（CMake install 需要）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $makepri = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64\makepri.exe' | Select-Object -Last 1
+          & $makepri.FullName new /pr support\build\msix\content /cf support\build\msix\priconfig.xml /mn support\build\msix\content\AppxManifest.xml /of support\build\msix\content\resources.pri /o
+          & 'C:\Program Files (x86)\Windows Kits\10\App Certification Kit\makeappx.exe' pack /o /d support\build\msix\content /nv /p app\windows\juyuwanggeiwo_msix_helper.msix
+
+      - name: 解析依赖（强制锁文件）
+        shell: bash
+        run: flutter pub get --enforce-lockfile
+
+      - name: 断言 flutter_rust_bridge 三方版本一致
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODEGEN=$(grep -oE "codegenVersion => '[0-9]+\.[0-9]+\.[0-9]+'" packages/localsend_isolates/lib/rust/frb_generated.dart | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          LOCKED=$(awk '/^  flutter_rust_bridge:/{f=1} f && /^    version:/{gsub(/[^0-9.]/,""); print; exit}' pubspec.lock)
+          RESOLVED=$(grep -oE 'flutter_rust_bridge-[0-9]+\.[0-9]+\.[0-9]+' .dart_tool/package_config.json | head -1 | sed 's/flutter_rust_bridge-//')
+          echo "codegen=$CODEGEN lock=$LOCKED resolved=$RESOLVED"
+          [ "$CODEGEN" = "$LOCKED" ] && [ "$LOCKED" = "$RESOLVED" ]
+
+      - name: 构建 Windows 应用
+        working-directory: app
+        run: flutter build windows --release
+
+      - name: 准备 Inno Setup 载荷
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "${{ runner.temp }}\inno" | Out-Null
+          Copy-Item -Path "app\build\windows\x64\runner\Release\*" -Destination "${{ runner.temp }}\inno" -Recurse
+          Copy-Item -Path "app\assets\packaging\logo.ico" -Destination "${{ runner.temp }}\inno"
+          Copy-Item -Path "support\build\windows\x64\*" -Destination "${{ runner.temp }}\inno" -Recurse
+          New-Item -ItemType Directory -Force -Path "${{ runner.temp }}\inno-result" | Out-Null
+
+      # SkipMsixHelper：helper 未签名，Add-AppxPackage 会拒绝未签名包
+      - name: 生成安装包（未签名）
+        run: iscc /DSkipSignTool /DSkipMsixHelper "/DPayloadDir=${{ runner.temp }}\inno" "/DResultDir=${{ runner.temp }}\inno-result" support\scripts\compile_windows_exe-inno.iss
+
+      - name: 整理产物
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $v = "${{ steps.versions.outputs.app }}"
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Move-Item "${{ runner.temp }}\inno-result\juyuwanggeiwo.exe" "out\juyuwanggeiwo-$v-windows-x64.exe"
+          Compress-Archive -Path "app\build\windows\x64\runner\Release\*" -DestinationPath "out\juyuwanggeiwo-$v-windows-x64.zip"
+          Get-ChildItem out | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned
+          path: out/*
+          if-no-files-found: error

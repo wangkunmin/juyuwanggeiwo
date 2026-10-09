@@ -340,7 +340,24 @@ services:
       - pub-cache:/root/.pub-cache
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/src/target
-    command: ["bash", "-c", "cd app && flutter build linux --release"]
+    # 与 android-apk 相同：先按锁文件解析依赖并断言 flutter_rust_bridge 版本三方一致，
+    # 再构建（版本错配会导致应用启动即崩）
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        cd /src
+        flutter --no-version-check pub get --enforce-lockfile
+        CODEGEN=$(grep -oE "codegenVersion => '[0-9]+\.[0-9]+\.[0-9]+'" /src/packages/localsend_isolates/lib/rust/frb_generated.dart | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        LOCKED=$(awk '/^  flutter_rust_bridge:/{f=1} f && /^    version:/{gsub(/[^0-9.]/,""); print; exit}' /src/pubspec.lock)
+        RESOLVED=$(grep -oE 'flutter_rust_bridge-[0-9]+\.[0-9]+\.[0-9]+' /src/.dart_tool/package_config.json | head -1 | sed 's/flutter_rust_bridge-//')
+        echo "FRB version check: codegen=$CODEGEN lock=$LOCKED resolved=$RESOLVED"
+        if [ "$$CODEGEN" != "$$LOCKED" ] || [ "$$LOCKED" != "$$RESOLVED" ]; then
+          echo "ERROR: flutter_rust_bridge 版本不一致，已终止构建" >&2
+          exit 1
+        fi
+        cd app && flutter --no-version-check build linux --release
 
   # ---------- 交互开发：Rust + Flutter + Android SDK + FRB codegen ----------
   dev:
