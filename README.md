@@ -76,6 +76,23 @@ docker compose -f docker/compose.yaml run --rm android-apk  # 打包 Android APK
 docker compose -f docker/compose.yaml run --rm dev          # 交互开发 shell
 ```
 
+**一键打包 Android（脚本，默认只打包、不安装）**：
+
+```bash
+./support/scripts/build_android_apk.sh                 # 三个 ABI 分包（release）
+./support/scripts/build_android_apk.sh --debug         # debug 包（体积小、可接调试器）
+./support/scripts/build_android_apk.sh --universal     # 通用包（三 ABI 合一）
+./support/scripts/build_android_apk.sh --from-release  # 不打包，直接下载已发布的 APK（最快）
+./support/scripts/build_android_apk.sh --install       # 可选：打包后用 adb 安装
+```
+
+产物在 `app/build/app/outputs/flutter-apk/`，自行安装：
+
+```bash
+adb install -r app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+# 或把 apk 传到手机后点击安装（需允许「未知来源」）
+```
+
 各 target、镜像源配置与平台限制见 [docker/README.md](docker/README.md)。**iOS / macOS / Windows 需在各自宿主上构建**，无法在 Linux 容器内完成。
 
 **本地工具链**：用 `fvm` 管理 Flutter（版本见 [.fvmrc](.fvmrc)），Rust 版本见 [rust-toolchain.toml](rust-toolchain.toml)；核心库测试需带 `--features full`。完整命令与架构说明见 [AGENTS.md](AGENTS.md)。
