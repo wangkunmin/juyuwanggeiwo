@@ -562,6 +562,34 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
     return response;
   }
 
+  /// Whether [sendFile] may act for a session currently in [status].
+  ///
+  /// A **first** send only runs while the session is active ([SessionStatus.sending])
+  /// or partially failed ([SessionStatus.finishedWithErrors]).
+  ///
+  /// A **retry** is allowed from *any* state as long as the session exists: the
+  /// receiver canceled, declined, was busy, the sender canceled, too many
+  /// attempts, … — all of these can be retried, because a retry re-negotiates
+  /// the session and then continues from the offset the receiver reports.
+  ///
+  /// Regression note: applying the two "first send" states to retries as well
+  /// silently swallowed the ↻ button ([progress_page] shows it whenever a file
+  /// is `failed`, even when the session is `canceledByReceiver`). The sender then
+  /// never sent a new prepare-upload, the receiver never showed its confirmation
+  /// again, and resume-on-retry looked broken while nothing was logged at all.
+  static bool maySendOrRetry({
+    required SessionStatus? status,
+    required bool isRetry,
+  }) {
+    if (status == null) {
+      return false;
+    }
+    if (isRetry) {
+      return true;
+    }
+    return const {SessionStatus.sending, SessionStatus.finishedWithErrors}.contains(status);
+  }
+
   /// Sends a single file. Currently only used to retry a failed file.
   ///
   /// A retry re-negotiates the session instead of reusing the old token: the
@@ -575,8 +603,7 @@ class SendNotifier extends Notifier<Map<String, SendSessionState>> {
     required bool isRetry,
   }) async {
     final status = state[sessionId]?.status;
-    const allowedStates = {SessionStatus.sending, SessionStatus.finishedWithErrors};
-    if (status == null || !allowedStates.contains(status)) {
+    if (!maySendOrRetry(status: status, isRetry: isRetry)) {
       return;
     }
 
