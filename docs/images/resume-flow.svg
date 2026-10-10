@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0f766e"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="470" fill="#ffffff"/>
+
+  <!-- 两端标题 -->
+  <rect x="40" y="18" width="180" height="38" rx="8" fill="#0f766e"/>
+  <text x="130" y="43" font-size="16" fill="#ffffff" text-anchor="middle">发送端</text>
+  <rect x="680" y="18" width="180" height="38" rx="8" fill="#0f766e"/>
+  <text x="770" y="43" font-size="16" fill="#ffffff" text-anchor="middle">接收端</text>
+  <line x1="130" y1="56" x2="130" y2="450" stroke="#0f766e" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <line x1="770" y1="56" x2="770" y2="450" stroke="#0f766e" stroke-width="1.5" stroke-dasharray="4 4"/>
+
+  <!-- 阶段一 -->
+  <text x="40" y="92" font-size="13" fill="#64748b">① 首次传输（正常开始）</text>
+  <line x1="130" y1="112" x2="762" y2="112" stroke="#0f766e" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="450" y="105" font-size="12.5" fill="#334155" text-anchor="middle">prepare-upload（文件清单 + 大小）</text>
+  <line x1="770" y1="140" x2="138" y2="140" stroke="#0f766e" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="450" y="133" font-size="12.5" fill="#334155" text-anchor="middle">sessionId + 每个文件的 token（无需续传时不带 resume 字段，与上游一致）</text>
+
+  <!-- 阶段二：中断 -->
+  <rect x="60" y="164" width="820" height="46" rx="8" fill="#fef2f2" stroke="#fca5a5"/>
+  <text x="470" y="186" font-size="13" fill="#b91c1c" text-anchor="middle">② 传输中断（断网 / 切换网络 / 应用被关闭）</text>
+  <text x="470" y="203" font-size="12" fill="#7f1d1d" text-anchor="middle">接收端已落盘的字节被记录，未完成文件改名为 <tspan font-family="monospace">文件名.part</tspan></text>
+  <line x1="130" y1="228" x2="762" y2="228" stroke="#b91c1c" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrowRed)"/>
+  <text x="450" y="221" font-size="12.5" fill="#b91c1c" text-anchor="middle">传输在这一步被打断（连接断开）</text>
+
+  <!-- 阶段三：续传 -->
+  <text x="40" y="266" font-size="13" fill="#64748b">③ 重新发送同一文件（点击重试，或再次发送）</text>
+  <line x1="130" y1="286" x2="762" y2="286" stroke="#0f766e" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="450" y="279" font-size="12.5" fill="#334155" text-anchor="middle">prepare-upload（重新协商会话）</text>
+  <line x1="770" y1="316" x2="138" y2="316" stroke="#0f766e" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="450" y="309" font-size="12.5" fill="#334155" text-anchor="middle">resume: { 文件 → 已接收的字节数 offset }</text>
+  <line x1="130" y1="348" x2="762" y2="348" stroke="#0f766e" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="450" y="341" font-size="12.5" fill="#334155" text-anchor="middle">upload?offset=N —— 只发送缺少的尾部</text>
+
+  <!-- 结果 -->
+  <rect x="60" y="372" width="820" height="74" rx="8" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="470" y="394" font-size="13" fill="#065f46" text-anchor="middle">④ 完成：仍校验整个文件的 SHA-256（磁盘上已收到的前缀一并参与计算）</text>
+  <text x="470" y="415" font-size="12" fill="#047857" text-anchor="middle">校验通过 → 文件从 <tspan font-family="monospace">.part</tspan> 改回原名；校验失败 → 报错，不会落成坏文件</text>
+  <text x="470" y="434" font-size="12" fill="#047857" text-anchor="middle">目标位置已存在同名文件时不会覆盖</text>
+</svg>
