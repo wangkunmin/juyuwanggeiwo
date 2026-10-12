@@ -21,7 +21,7 @@
 - [下载与安装](#下载与安装)
 - [常见问题](#常见问题)
 - [与官方 LocalSend 的关系](#与官方-localsend-的关系)
-- [从源码构建](#从源码构建)
+- [构建与发布](#构建与发布)
 - [许可与致谢](#许可与致谢)
 
 ---
@@ -170,9 +170,32 @@ Android 包名为 `com.gitee.ynzj.juyuwanggeiwo`，可与官方 LocalSend **共�
 - 新增能力（断点续传）是**可选扩展字段**，对不认识它的对端完全透明；
 - 相对上游文件的修改记录见 [NOTICE](NOTICE)，上游原始说明保留在 [README.upstream.md](README.upstream.md)。
 
-## 从源码构建
+## 构建与发布
 
-### 一键打 Android APK（默认只打包、不安装）
+> **出包以云端（GitHub Actions）为准**：四个平台的工作流会构建并同时发布到 GitHub Release 与 Gitee Release，
+> 本机无需安装 Flutter/Android SDK/Xcode，也不占本地磁盘。下面的本地方式仅作离线/调试备用。
+
+### 云端构建（推荐）
+
+`.github/workflows/` 下四个工作流分别产出安装包并自动发布：
+
+| 工作流 | 产出 |
+|---|---|
+| `build_android_apk_fork.yml` | 三个 ABI 的 release APK（复用正式签名，可覆盖升级） |
+| `build_macos_dmg.yml` | `macos-universal.dmg`（临时签名，含签名校验与冒烟运行） |
+| `build_windows_fork.yml` | `windows-x64.zip`（绿色版） |
+| `build_linux_fork.yml` | `linux-x86_64.tar.gz` |
+
+- 手动触发：仓库 **Actions** → 选择工作流 → **Run workflow**；
+- 或推送 `v*` 标签，四个平台一起出包；
+- 产物同时出现在 **GitHub Releases** 与 **Gitee Releases**。
+
+国内下载 GitHub 产物较慢时，可加镜像前缀加速（下完请核对 `SHA256SUMS-*.txt`）：
+`https://ghfast.top/https://github.com/<owner>/<repo>/releases/download/<tag>/<file>`
+
+### 本地构建（可选，需自备工具链）
+
+#### 一键打 Android APK（默认只打包、不安装）
 
 ```bash
 ./support/scripts/build_android_apk.sh                 # 三个 ABI 分包（release）
@@ -199,13 +222,6 @@ docker compose -f docker/compose.yaml run --rm dev          # 交互开发 shell
 ```
 
 `docker/README.md` 里有各 target、镜像源配置与平台限制。**iOS / macOS / Windows 需在各自宿主上构建**（macOS 需 Xcode 26+），无法在 Linux 容器内完成。
-
-### 云端构建
-
-`.github/workflows/` 下四个工作流分别产出 Android / macOS / Windows / Linux 安装包，并**同时发布到 GitHub Release 与 Gitee Release**：
-
-- 手动触发：Actions → 选择工作流 → Run workflow；
-- 或推送 `v*` 标签，四个平台一起出包。
 
 ### 本地工具链
 
